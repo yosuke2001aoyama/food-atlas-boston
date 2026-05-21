@@ -226,7 +226,7 @@ st.markdown(
 
     .block-container {
         max-width: 1180px;
-        padding-top: 1.25rem;
+        padding-top: 5.25rem;
         padding-bottom: 3rem;
     }
 
@@ -1036,7 +1036,79 @@ def save_feedback(feedback):
         writer.writerow(feedback)
 
 
+def get_setting(name, default=""):
+    if os.environ.get(name):
+        return os.environ[name]
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+
+def configured_review_form():
+    action_url = get_setting("REVIEW_FORM_ACTION_URL")
+    field_map = {
+        "timestamp": get_setting("REVIEW_FORM_TIMESTAMP_FIELD"),
+        "country": get_setting("REVIEW_FORM_COUNTRY_FIELD"),
+        "restaurant": get_setting("REVIEW_FORM_RESTAURANT_FIELD"),
+        "rating": get_setting("REVIEW_FORM_RATING_FIELD"),
+        "note": get_setting("REVIEW_FORM_NOTE_FIELD"),
+    }
+    return action_url, field_map
+
+
+def send_review_to_google_form(review):
+    action_url, field_map = configured_review_form()
+    if not action_url or not all(field_map.values()):
+        return False
+
+    payload = {
+        field_map["timestamp"]: review["timestamp"],
+        field_map["country"]: review["country"],
+        field_map["restaurant"]: review["restaurant"],
+        field_map["rating"]: review["rating"],
+        field_map["note"]: review["note"],
+    }
+    request = Request(
+        action_url,
+        data=urlencode(payload).encode("utf-8"),
+        headers={"User-Agent": "food-atlas-boston/1.0"},
+    )
+    try:
+        with urlopen(request, timeout=10):
+            return True
+    except Exception:
+        return False
+
+
+def load_reviews_from_published_csv():
+    csv_url = get_setting("REVIEW_SHEET_CSV_URL")
+    if not csv_url:
+        return None
+
+    try:
+        request = Request(csv_url, headers={"User-Agent": "food-atlas-boston/1.0"})
+        with urlopen(request, timeout=10) as response:
+            csv_text = response.read().decode("utf-8")
+        return [
+            {
+                "timestamp": row.get("timestamp", ""),
+                "country": row.get("country", ""),
+                "restaurant": row.get("restaurant", ""),
+                "rating": float(row.get("rating", 0) or 0),
+                "note": row.get("note", ""),
+            }
+            for row in csv.DictReader(csv_text.splitlines())
+            if row.get("restaurant") and row.get("rating")
+        ]
+    except Exception:
+        return None
+
+
 def save_review(review):
+    if send_review_to_google_form(review):
+        return
+
     fieldnames = ["timestamp", "country", "restaurant", "rating", "note"]
     file_exists = os.path.exists(REVIEWS_FILE)
     with open(REVIEWS_FILE, "a", newline="", encoding="utf-8") as reviews_file:
@@ -1047,6 +1119,10 @@ def save_review(review):
 
 
 def load_reviews():
+    published_reviews = load_reviews_from_published_csv()
+    if published_reviews is not None:
+        return published_reviews
+
     if not os.path.exists(REVIEWS_FILE):
         return []
     with open(REVIEWS_FILE, "r", encoding="utf-8") as reviews_file:
