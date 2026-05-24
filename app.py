@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from urllib.error import URLError
 from urllib.parse import urlencode
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import folium
@@ -1057,10 +1058,34 @@ def configured_review_form():
     return action_url, field_map
 
 
+def review_form_diagnostic(action_url, field_map):
+    if not action_url:
+        return "missing REVIEW_FORM_ACTION_URL"
+
+    parsed_url = urlparse(action_url)
+    public_form_url = "/forms/d/e/" in parsed_url.path and parsed_url.path.endswith("/formResponse")
+    if not public_form_url:
+        return "REVIEW_FORM_ACTION_URL should look like https://docs.google.com/forms/d/e/.../formResponse"
+
+    missing_fields = [
+        name
+        for name, field_id in field_map.items()
+        if not field_id
+    ]
+    if missing_fields:
+        return f"missing field IDs: {', '.join(missing_fields)}"
+
+    return "configured"
+
+
 def send_review_to_google_form(review):
     action_url, field_map = configured_review_form()
     if not action_url or not all(field_map.values()):
         return False, "Review storage is not configured in Streamlit Secrets."
+
+    diagnostic = review_form_diagnostic(action_url, field_map)
+    if diagnostic != "configured":
+        return False, diagnostic
 
     payload = {
         field_map["timestamp"]: review["timestamp"],
@@ -1083,6 +1108,12 @@ def send_review_to_google_form(review):
                 return True, ""
             return False, f"Google Form returned status {response.status}."
     except Exception as error:
+        if "HTTP Error 401" in str(error):
+            return (
+                False,
+                "Google Form returned 401 Unauthorized. Open the form settings and turn off sign-in restrictions, "
+                "email collection, and one-response limits; also confirm Secrets uses the /forms/d/e/.../formResponse URL.",
+            )
         return False, f"Google Form submission failed: {error}"
 
 
@@ -1330,6 +1361,8 @@ def render_rate_view():
     action_url, field_map = configured_review_form()
     if not action_url or not all(field_map.values()):
         st.warning("Review storage is not fully configured. Ratings will not persist after app restart until Streamlit Secrets are completed.")
+    elif review_form_diagnostic(action_url, field_map) != "configured":
+        st.warning(review_form_diagnostic(action_url, field_map))
 
     selected_restaurant = selected_from_map_restaurant
     if selected_restaurant:
