@@ -72,3 +72,5 @@ REVIEW_FORM_NOTE_FIELD = "entry.xxxxx"
 ```
 
 The app falls back to `reviews.csv` only for local testing.
+
+If reviews do not appear in the Google Form response Sheet, open the app's Rate page and submit a test review. The app will show whether the Google Form submission succeeded or which secret is missing.

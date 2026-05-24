@@ -1060,7 +1060,7 @@ def configured_review_form():
 def send_review_to_google_form(review):
     action_url, field_map = configured_review_form()
     if not action_url or not all(field_map.values()):
-        return False
+        return False, "Review storage is not configured in Streamlit Secrets."
 
     payload = {
         field_map["timestamp"]: review["timestamp"],
@@ -1072,13 +1072,18 @@ def send_review_to_google_form(review):
     request = Request(
         action_url,
         data=urlencode(payload).encode("utf-8"),
-        headers={"User-Agent": "food-atlas-boston/1.0"},
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "food-atlas-boston/1.0",
+        },
     )
     try:
-        with urlopen(request, timeout=10):
-            return True
-    except Exception:
-        return False
+        with urlopen(request, timeout=10) as response:
+            if response.status in {200, 302}:
+                return True, ""
+            return False, f"Google Form returned status {response.status}."
+    except Exception as error:
+        return False, f"Google Form submission failed: {error}"
 
 
 def load_reviews_from_published_csv():
@@ -1106,8 +1111,9 @@ def load_reviews_from_published_csv():
 
 
 def save_review(review):
-    if send_review_to_google_form(review):
-        return
+    sent_to_google_form, error_message = send_review_to_google_form(review)
+    if sent_to_google_form:
+        return True, ""
 
     fieldnames = ["timestamp", "country", "restaurant", "rating", "note"]
     file_exists = os.path.exists(REVIEWS_FILE)
@@ -1116,6 +1122,7 @@ def save_review(review):
         if not file_exists:
             writer.writeheader()
         writer.writerow(review)
+    return False, error_message
 
 
 def load_reviews():
@@ -1320,6 +1327,9 @@ def render_rate_view():
         f'<p class="section-note"><span class="flag">{origin_flag}</span> {len(country_restaurants)} {origin_country} cuisine restaurants near Boston.</p>',
         unsafe_allow_html=True,
     )
+    action_url, field_map = configured_review_form()
+    if not action_url or not all(field_map.values()):
+        st.warning("Review storage is not fully configured. Ratings will not persist after app restart until Streamlit Secrets are completed.")
 
     selected_restaurant = selected_from_map_restaurant
     if selected_restaurant:
@@ -1373,8 +1383,14 @@ def render_rate_view():
                 "note": note.strip(),
             }
             st.session_state.reviews.append(review_record)
-            save_review(review_record)
-            st.success(f"Rated {selected_restaurant['name']} {user_rating:.1f}.")
+            sent_to_google_form, error_message = save_review(review_record)
+            if sent_to_google_form:
+                st.success(f"Rated {selected_restaurant['name']} {user_rating:.1f}. The review was saved to Google Forms.")
+                st.info("If it does not appear in the Sheet immediately, wait a few seconds and refresh the Sheet.")
+            else:
+                st.error("The review was not saved to Google Forms yet.")
+                st.caption(error_message)
+                st.warning("Check Streamlit Secrets and the Google Form field IDs. A local backup was saved only for this runtime.")
     else:
         st.markdown(
             """
