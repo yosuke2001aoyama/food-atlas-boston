@@ -206,6 +206,21 @@ CURATED_PRIORITY = {
 
 st.set_page_config(page_title="Food Atlas Boston", layout="wide")
 
+VIEW_OPTIONS = ["Explore", "Rate", "Reviews", "Feedback"]
+initial_view = st.query_params.get("view")
+if isinstance(initial_view, list):
+    initial_view = initial_view[0] if initial_view else None
+if "active_view" not in st.session_state:
+    st.session_state.active_view = initial_view if initial_view in VIEW_OPTIONS else "Explore"
+if "menu_open" not in st.session_state:
+    st.session_state.menu_open = False
+
+
+def switch_view(view_name):
+    st.session_state.active_view = view_name
+    st.session_state.menu_open = False
+
+
 st.markdown(
     """
     <style>
@@ -244,20 +259,18 @@ st.markdown(
         letter-spacing: 0 !important;
     }
 
-    .site-nav {
+    .brand-row {
         align-items: center;
         display: flex;
-        justify-content: space-between;
-        margin-bottom: 1.2rem;
+        gap: 0.65rem;
+        margin-top: -0.4rem;
     }
 
-    .brand {
-        align-items: center;
-        display: flex;
+    .brand-title {
         font-family: Georgia, "Times New Roman", serif;
         font-size: 1.45rem;
         font-weight: 800;
-        gap: 0.55rem;
+        line-height: 1;
         white-space: nowrap;
     }
 
@@ -278,30 +291,28 @@ st.markdown(
         filter: brightness(1.06);
     }
 
-    .nav-links {
-        align-items: center;
+    .inline-menu {
+        background:
+            linear-gradient(135deg, rgba(230,246,248,0.96), rgba(255,255,255,0.96)),
+            radial-gradient(circle at 10% 10%, rgba(15,127,140,0.18), transparent 28%);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: 0 18px 42px rgba(15, 127, 140, 0.13);
+        margin: 0.35rem 0 1rem;
+        padding: 1rem;
+    }
+
+    .inline-menu-title {
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.2rem;
+        font-weight: 850;
+    }
+
+    .inline-menu-copy {
         color: var(--muted);
-        display: flex;
-        font-weight: 700;
-        gap: 1rem;
-    }
-
-    .nav-links a {
-        color: var(--muted);
-        border-radius: 999px;
-        padding: 0.45rem 0.65rem;
-        text-decoration: none;
-    }
-
-    .nav-links a:hover {
-        background: var(--accent-soft);
-        color: var(--accent-dark);
-    }
-
-    .nav-links .feedback-link {
-        color: #8a97aa;
         font-size: 0.9rem;
-        font-weight: 650;
+        margin-top: 0.2rem;
     }
 
     .nav-bar-note {
@@ -565,12 +576,31 @@ st.markdown(
     }
 
     .ranking-card {
-        background: #ffffff;
+        background:
+            linear-gradient(90deg, rgba(255,255,255,0.94), rgba(255,255,255,0.76)),
+            var(--ranking-image);
+        background-position: center;
+        background-size: cover;
         border: 1px solid var(--line);
         border-radius: 8px;
         box-shadow: 0 12px 28px rgba(15, 127, 140, 0.08);
-        margin-bottom: 0.85rem;
-        padding: 1rem;
+        margin-bottom: 0;
+        min-height: 142px;
+        overflow: hidden;
+        padding: 1.1rem;
+        position: relative;
+    }
+
+    .ranking-card:before {
+        background: linear-gradient(90deg, rgba(255,255,255,0.96), rgba(255,255,255,0.82), rgba(255,255,255,0.58));
+        content: "";
+        inset: 0;
+        position: absolute;
+    }
+
+    .ranking-card > * {
+        position: relative;
+        z-index: 1;
     }
 
     .ranking-card-title {
@@ -589,7 +619,7 @@ st.markdown(
     }
 
     .ranking-card-note {
-        background: var(--accent-soft);
+        background: rgba(230, 246, 248, 0.9);
         border-radius: 8px;
         color: var(--accent-dark);
         font-size: 0.95rem;
@@ -598,9 +628,13 @@ st.markdown(
     }
 
     .ranking-card-empty-note {
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--line);
+        border-radius: 8px;
         color: var(--muted);
         font-size: 0.92rem;
-        margin-top: 0.4rem;
+        margin-top: 0.65rem;
+        padding: 0.65rem;
     }
 
     .ranking-badge {
@@ -748,12 +782,14 @@ st.markdown(
     }
 
     .country-entry-panel {
-        background: #ffffff;
+        background:
+            linear-gradient(135deg, rgba(255,255,255,0.95), rgba(230,246,248,0.86)),
+            radial-gradient(circle at 96% 20%, rgba(29,78,216,0.12), transparent 24%);
         border: 1px solid var(--line);
         border-radius: 8px;
         box-shadow: 0 12px 34px rgba(15, 127, 140, 0.12);
         margin: 1.4rem 0 1.4rem;
-        padding: 1rem;
+        padding: 1.25rem;
     }
 
     .country-button-title {
@@ -772,33 +808,14 @@ st.markdown(
         justify-content: center;
     }
 
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #f5fbfd, #ffffff);
-    }
-
-    [data-testid="stSidebar"] .stButton > button {
-        border-radius: 999px;
-    }
-
     .flag {
         font-size: 1.15rem;
         line-height: 1;
     }
 
     @media (max-width: 760px) {
-        .site-nav {
-            align-items: flex-start;
-            flex-direction: column;
-            gap: 0.85rem;
-        }
-
-        .brand {
+        .brand-title {
             font-size: 1.25rem;
-        }
-
-        .nav-links {
-            flex-wrap: wrap;
-            gap: 0.85rem;
         }
 
         .metric-grid {
@@ -838,28 +855,49 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+header_columns = st.columns([0.08, 0.48, 0.1, 0.1, 0.12, 0.12], gap="small")
+with header_columns[0]:
+    if st.button("🌐", key="open-inline-menu", help="Open section menu"):
+        st.session_state.menu_open = not st.session_state.menu_open
+
+with header_columns[1]:
+    st.markdown(
+        """
+        <div class="brand-row">
+            <div class="brand-title">Food Atlas Boston</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+for column, view_name in zip(header_columns[2:], VIEW_OPTIONS):
+    label = f"• {view_name}" if st.session_state.active_view == view_name else view_name
+    if column.button(label, key=f"top-nav-{view_name}", use_container_width=True):
+        switch_view(view_name)
+        st.rerun()
+
+if st.session_state.menu_open:
+    st.markdown(
+        """
+        <div class="inline-menu">
+            <div class="inline-menu-title">Food Atlas Boston</div>
+            <div class="inline-menu-copy">Choose a section without leaving this page.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    menu_columns = st.columns([1, 1, 1, 1, 1], gap="small")
+    for column, view_name in zip(menu_columns[:4], VIEW_OPTIONS):
+        label = f"• {view_name}" if st.session_state.active_view == view_name else view_name
+        if column.button(label, key=f"inline-menu-{view_name}", use_container_width=True):
+            switch_view(view_name)
+            st.rerun()
+    if menu_columns[4].button("Close", key="inline-menu-close", use_container_width=True):
+        st.session_state.menu_open = False
+        st.rerun()
+
 st.markdown(
     """
-    <div class="site-nav">
-        <div class="brand">
-            <a class="brand-mark" href="?menu=open" title="Open navigation menu">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" width="25" height="25">
-                    <circle cx="12" cy="12" r="8.5"></circle>
-                    <path d="M3.8 9h16.4"></path>
-                    <path d="M3.8 15h16.4"></path>
-                    <path d="M12 3.5a13 13 0 0 1 0 17"></path>
-                    <path d="M12 3.5a13 13 0 0 0 0 17"></path>
-                </svg>
-            </a>
-            <span>Food Atlas Boston</span>
-        </div>
-        <div class="nav-links">
-            <a href="?view=Explore">Explore</a>
-            <a href="?view=Rate">Rate</a>
-            <a href="?view=Reviews">Reviews</a>
-            <a class="feedback-link" href="?view=Feedback">Feedback</a>
-        </div>
-    </div>
     <section class="hero">
         <div class="hero-kicker">Boston dining guide</div>
         <div class="hero-title">Find the places that taste like home.</div>
@@ -1326,35 +1364,12 @@ st.session_state.reviews = load_reviews()
 if "feedback" not in st.session_state:
     st.session_state.feedback = []
 
-if "active_view" not in st.session_state:
-    requested_view = get_query_param("view")
-    st.session_state.active_view = requested_view if requested_view in ["Explore", "Rate", "Reviews", "Feedback"] else "Explore"
-
 all_restaurants = st.session_state.all_restaurants
 
 total_reviews = len(st.session_state.reviews)
 
 country_options = sorted(COUNTRY_CUISINES)
-view_options = ["Explore", "Rate", "Reviews", "Feedback"]
-requested_view = get_query_param("view")
-if requested_view in view_options and requested_view != st.session_state.active_view:
-    st.session_state.active_view = requested_view
-
-if get_query_param("menu") == "open":
-    with st.sidebar:
-        st.markdown("### Food Atlas Boston")
-        st.caption("Jump to a section.")
-        for view_name in view_options:
-            label = f"• {view_name}" if st.session_state.active_view == view_name else view_name
-            if st.button(label, key=f"side-nav-{view_name}", use_container_width=True):
-                st.session_state.active_view = view_name
-                st.query_params["view"] = view_name
-                st.query_params["menu"] = "open"
-                st.rerun()
-        if st.button("Close menu", key="side-nav-close", use_container_width=True):
-            if "menu" in st.query_params:
-                del st.query_params["menu"]
-            st.rerun()
+view_options = VIEW_OPTIONS
 
 with st.container():
     st.markdown(
@@ -1585,6 +1600,11 @@ RESTAURANT_IMAGE_URLS = [
 ]
 
 
+def restaurant_image_url(restaurant_name):
+    image_index = sum(ord(character) for character in restaurant_name) % len(RESTAURANT_IMAGE_URLS)
+    return RESTAURANT_IMAGE_URLS[image_index]
+
+
 def render_restaurant_cards(restaurants, start_index=0, key_prefix="restaurant", columns_per_row=3):
     if not restaurants:
         return
@@ -1613,7 +1633,6 @@ def render_restaurant_cards(restaurants, start_index=0, key_prefix="restaurant",
                     if st.button("Rate", key=f"{key_prefix}-rate-card-{index}-{safe_name}", use_container_width=True):
                         st.session_state.map_selected_restaurant = restaurant["name"]
                         st.session_state.active_view = "Rate"
-                        st.query_params["view"] = "Rate"
                         st.rerun()
 
 
@@ -1659,28 +1678,29 @@ def render_ranking_cards(entries):
         restaurant = entry["restaurant"]
         ratings = entry["ratings"]
         notes = entry["notes"]
-        st.markdown(
-            f"""
-            <div class="ranking-card" title="{html.escape(notes[-1] if notes else 'No notes yet.')}">
-                <div class="ranking-badge">#{entry["rank"]} most authentic</div>
-                <div class="ranking-card-title">{origin_flag} {html.escape(restaurant["name"])}</div>
-                <div class="ranking-card-meta">{star_rating_html(ratings)} · {entry["average_rating"]:.1f} average · {len(ratings)} reviews</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if notes:
-            with st.expander("See reviews"):
-                for note in notes:
-                    st.markdown(
-                        f'<div class="ranking-card-note">"{html.escape(note)}"</div>',
-                        unsafe_allow_html=True,
-                    )
-        else:
+        with st.container(border=True):
             st.markdown(
-                '<div class="ranking-card-empty-note">No written review yet.</div>',
+                f"""
+                <div class="ranking-card" style="--ranking-image: url('{restaurant_image_url(restaurant["name"])}')" title="{html.escape(notes[-1] if notes else 'No notes yet.')}">
+                    <div class="ranking-badge">#{entry["rank"]} most authentic</div>
+                    <div class="ranking-card-title">{origin_flag} {html.escape(restaurant["name"])}</div>
+                    <div class="ranking-card-meta">{star_rating_html(ratings)} · {entry["average_rating"]:.1f} average · {len(ratings)} reviews</div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
+            if notes:
+                with st.expander("See reviews"):
+                    for note in notes:
+                        st.markdown(
+                            f'<div class="ranking-card-note">"{html.escape(note)}"</div>',
+                            unsafe_allow_html=True,
+                        )
+            else:
+                st.markdown(
+                    '<div class="ranking-card-empty-note">No written review yet.</div>',
+                    unsafe_allow_html=True,
+                )
 
 
 sorted_country_restaurants = sorted(
@@ -1732,7 +1752,6 @@ def render_explore_view():
         if clicked_restaurant and st.session_state.get("map_selected_restaurant") != clicked_restaurant["name"]:
             st.session_state.map_selected_restaurant = clicked_restaurant["name"]
             st.session_state.active_view = "Rate"
-            st.query_params["view"] = "Rate"
             st.rerun()
 
     with list_area:
