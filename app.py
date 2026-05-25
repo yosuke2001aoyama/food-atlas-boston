@@ -548,6 +548,48 @@ st.markdown(
         margin-top: 0.2rem;
     }
 
+    .ranking-card {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: 0 12px 28px rgba(15, 127, 140, 0.08);
+        margin-bottom: 0.85rem;
+        padding: 1rem;
+    }
+
+    .ranking-card-title {
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.35rem;
+        font-weight: 850;
+        line-height: 1.2;
+    }
+
+    .ranking-card-meta {
+        color: var(--muted);
+        font-size: 0.95rem;
+        font-weight: 750;
+        margin-top: 0.35rem;
+    }
+
+    .ranking-card-note {
+        background: var(--accent-soft);
+        border-radius: 8px;
+        color: var(--accent-dark);
+        font-size: 0.95rem;
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+    }
+
+    .ranking-badge {
+        color: var(--accent);
+        font-size: 0.8rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.3rem;
+        text-transform: uppercase;
+    }
+
     .selected-panel {
         background: linear-gradient(135deg, #e6f6f8, #ffffff);
         border: 1px solid var(--line);
@@ -973,12 +1015,18 @@ def star_rating_text(ratings):
 def popup_html(restaurant, ratings):
     restaurant_name = html.escape(restaurant["name"])
     star_text = star_rating_html(ratings)
+    review_count = len(ratings)
+    if ratings:
+        average_label = f"{sum(ratings) / len(ratings):.1f}"
+    else:
+        average_label = "New"
 
     return f"""
     <div style="font-family: Arial, sans-serif; min-width: 180px;">
         <div style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">{restaurant_name}</div>
         <div style="font-size: 18px; letter-spacing: 1px;">{star_text}</div>
-        <div style="color:#64748b; font-size:12px; margin-top:6px;">Click the marker to select this restaurant.</div>
+        <div style="color:#64748b; font-size:12px; margin-top:6px;">{average_label} · {review_count} reviews</div>
+        <div style="color:#075766; font-size:12px; font-weight:700; margin-top:6px;">Open Reviews for notes, or click the marker to rate.</div>
     </div>
     """
 
@@ -1425,8 +1473,7 @@ def render_rate_view():
             st.session_state.reviews.append(review_record)
             sent_to_google_form, error_message = save_review(review_record)
             if sent_to_google_form:
-                st.success(f"Rated {selected_restaurant['name']} {user_rating:.1f}. The review was saved to Google Forms.")
-                st.info("If it does not appear in the Sheet immediately, wait a few seconds and refresh the Sheet.")
+                st.success(f"Thanks for rating {selected_restaurant['name']}.")
             else:
                 st.error("The review was not saved to Google Forms yet.")
                 st.caption(error_message)
@@ -1451,6 +1498,10 @@ filtered_reviews = [
 average_by_restaurant = {}
 for review in filtered_reviews:
     average_by_restaurant.setdefault(review["restaurant"], []).append(review["rating"])
+
+reviews_by_restaurant = {}
+for review in filtered_reviews:
+    reviews_by_restaurant.setdefault(review["restaurant"], []).append(review)
 
 average_rows = [
     {
@@ -1520,6 +1571,36 @@ def render_restaurant_cards(restaurants, start_index=0, key_prefix="restaurant",
                         st.rerun()
 
 
+def render_ranking_cards(restaurants):
+    if not restaurants:
+        return
+
+    for rank, restaurant in enumerate(restaurants, start=1):
+        ratings = average_by_restaurant.get(restaurant["name"], [])
+        notes = [
+            review.get("note", "").strip()
+            for review in reviews_by_restaurant.get(restaurant["name"], [])
+            if review.get("note", "").strip()
+        ]
+        average_rating = sum(ratings) / len(ratings)
+        note_html = (
+            f'<div class="ranking-card-note">"{html.escape(notes[-1])}"</div>'
+            if notes
+            else ""
+        )
+        st.markdown(
+            f"""
+            <div class="ranking-card" title="{html.escape(notes[-1] if notes else 'No notes yet.')}">
+                <div class="ranking-badge">#{rank} most authentic</div>
+                <div class="ranking-card-title">{origin_flag} {html.escape(restaurant["name"])}</div>
+                <div class="ranking-card-meta">{star_rating_html(ratings)} · {average_rating:.1f} average · {len(ratings)} reviews</div>
+                {note_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 sorted_country_restaurants = sorted(
     country_restaurants,
     key=lambda restaurant: (
@@ -1554,7 +1635,11 @@ def render_explore_view():
                 fill_color="#0f7f8c",
                 fill_opacity=0.9,
                 popup=folium.Popup(popup_html(restaurant, ratings), max_width=260),
-                tooltip=html.escape(restaurant["name"]),
+                tooltip=(
+                    f"{html.escape(restaurant['name'])} · "
+                    f"{star_rating_text(ratings)} · "
+                    f"{len(ratings)} reviews · Open Reviews"
+                ),
             ).add_to(restaurant_map)
 
         map_data = st_folium(restaurant_map, width=640, height=520)
@@ -1610,22 +1695,18 @@ def render_reviews_view():
     st.markdown('<div id="reviews-section"></div>', unsafe_allow_html=True)
     st.subheader("Reviews")
     st.markdown(
-        f'<p class="section-note">Ratings and notes for {origin_flag} {html.escape(origin_country)} restaurants are saved locally and remain after refresh.</p>',
+        f'<p class="section-note">See which {origin_flag} {html.escape(origin_country)} restaurants feel most authentic to people from that home cuisine.</p>',
         unsafe_allow_html=True,
     )
 
     if average_rows:
-        st.subheader("Top Rated")
-        render_restaurant_cards(
-            [
-                restaurant
-                for restaurant in sorted_country_restaurants
-                if average_by_restaurant.get(restaurant["name"])
-            ][:6],
-            key_prefix="review-top",
-        )
-        st.subheader("Average Ratings")
-        st.dataframe(average_rows, hide_index=True, use_container_width=True)
+        st.subheader("Most Authentic Right Now")
+        ranked_restaurants = [
+            restaurant
+            for restaurant in sorted_country_restaurants
+            if average_by_restaurant.get(restaurant["name"])
+        ]
+        render_ranking_cards(ranked_restaurants[:8])
     else:
         st.markdown(
             """
@@ -1640,20 +1721,37 @@ def render_reviews_view():
             st.caption("If your Google Sheet already has responses, make sure the response Sheet is shared or published so the app can read its CSV URL.")
 
     st.subheader("Review Notes")
-    review_rows = [
-        {
-            "Restaurant": review["restaurant"],
-            "Rating": review["rating"],
-            "Note": review.get("note", ""),
-        }
+    notable_reviews = [
+        review
         for review in filtered_reviews
+        if review.get("note", "").strip()
     ]
 
-    if review_rows:
-        st.dataframe(review_rows[:5], hide_index=True, use_container_width=True)
-        if len(review_rows) > 5:
-            with st.expander("Show all reviews"):
-                st.dataframe(review_rows, hide_index=True, use_container_width=True)
+    if notable_reviews:
+        for review in notable_reviews[:6]:
+            st.markdown(
+                f"""
+                <div class="ranking-card">
+                    <div class="ranking-card-title">{origin_flag} {html.escape(review["restaurant"])}</div>
+                    <div class="ranking-card-meta">{star_rating_html([review["rating"]])} · {float(review["rating"]):.1f}</div>
+                    <div class="ranking-card-note">"{html.escape(review.get("note", ""))}"</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        if len(notable_reviews) > 6:
+            with st.expander("Show more notes"):
+                for review in notable_reviews[6:]:
+                    st.markdown(
+                        f"""
+                        <div class="ranking-card">
+                            <div class="ranking-card-title">{origin_flag} {html.escape(review["restaurant"])}</div>
+                            <div class="ranking-card-meta">{star_rating_html([review["rating"]])} · {float(review["rating"]):.1f}</div>
+                            <div class="ranking-card-note">"{html.escape(review.get("note", ""))}"</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
     else:
         st.caption("No review notes yet.")
 
