@@ -269,23 +269,39 @@ st.markdown(
         display: inline-flex;
         height: 38px;
         justify-content: center;
+        text-decoration: none;
         width: 38px;
     }
 
+    .brand-mark:hover {
+        color: #ffffff;
+        filter: brightness(1.06);
+    }
+
     .nav-links {
+        align-items: center;
         color: var(--muted);
         display: flex;
         font-weight: 700;
-        gap: 1.4rem;
+        gap: 1rem;
     }
 
     .nav-links a {
         color: var(--muted);
+        border-radius: 999px;
+        padding: 0.45rem 0.65rem;
         text-decoration: none;
     }
 
     .nav-links a:hover {
+        background: var(--accent-soft);
         color: var(--accent-dark);
+    }
+
+    .nav-links .feedback-link {
+        color: #8a97aa;
+        font-size: 0.9rem;
+        font-weight: 650;
     }
 
     .nav-bar-note {
@@ -581,6 +597,12 @@ st.markdown(
         padding: 0.75rem;
     }
 
+    .ranking-card-empty-note {
+        color: var(--muted);
+        font-size: 0.92rem;
+        margin-top: 0.4rem;
+    }
+
     .ranking-badge {
         color: var(--accent);
         font-size: 0.8rem;
@@ -750,6 +772,14 @@ st.markdown(
         justify-content: center;
     }
 
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #f5fbfd, #ffffff);
+    }
+
+    [data-testid="stSidebar"] .stButton > button {
+        border-radius: 999px;
+    }
+
     .flag {
         font-size: 1.15rem;
         line-height: 1;
@@ -812,7 +842,7 @@ st.markdown(
     """
     <div class="site-nav">
         <div class="brand">
-            <span class="brand-mark">
+            <a class="brand-mark" href="?menu=open" title="Open navigation menu">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" width="25" height="25">
                     <circle cx="12" cy="12" r="8.5"></circle>
                     <path d="M3.8 9h16.4"></path>
@@ -820,8 +850,14 @@ st.markdown(
                     <path d="M12 3.5a13 13 0 0 1 0 17"></path>
                     <path d="M12 3.5a13 13 0 0 0 0 17"></path>
                 </svg>
-            </span>
+            </a>
             <span>Food Atlas Boston</span>
+        </div>
+        <div class="nav-links">
+            <a href="?view=Explore">Explore</a>
+            <a href="?view=Rate">Rate</a>
+            <a href="?view=Reviews">Reviews</a>
+            <a class="feedback-link" href="?view=Feedback">Feedback</a>
         </div>
     </div>
     <section class="hero">
@@ -1243,13 +1279,13 @@ def load_reviews():
 
 
 def configured_google_form():
-    action_url = os.environ.get("GOOGLE_FORM_ACTION_URL", "")
+    action_url = get_setting("FEEDBACK_FORM_ACTION_URL") or get_setting("GOOGLE_FORM_ACTION_URL")
     field_map = {
-        "topic": os.environ.get("GOOGLE_FORM_TOPIC_FIELD", ""),
-        "country": os.environ.get("GOOGLE_FORM_COUNTRY_FIELD", ""),
-        "restaurant": os.environ.get("GOOGLE_FORM_RESTAURANT_FIELD", ""),
-        "message": os.environ.get("GOOGLE_FORM_MESSAGE_FIELD", ""),
-        "contact": os.environ.get("GOOGLE_FORM_CONTACT_FIELD", ""),
+        "topic": get_setting("FEEDBACK_FORM_TOPIC_FIELD") or get_setting("GOOGLE_FORM_TOPIC_FIELD"),
+        "country": get_setting("FEEDBACK_FORM_COUNTRY_FIELD") or get_setting("GOOGLE_FORM_COUNTRY_FIELD"),
+        "restaurant": get_setting("FEEDBACK_FORM_RESTAURANT_FIELD") or get_setting("GOOGLE_FORM_RESTAURANT_FIELD"),
+        "message": get_setting("FEEDBACK_FORM_MESSAGE_FIELD") or get_setting("GOOGLE_FORM_MESSAGE_FIELD"),
+        "contact": get_setting("FEEDBACK_FORM_CONTACT_FIELD") or get_setting("GOOGLE_FORM_CONTACT_FIELD"),
     }
     return action_url, field_map
 
@@ -1269,7 +1305,10 @@ def send_feedback_to_google_form(feedback):
     request = Request(
         action_url,
         data=urlencode(payload).encode("utf-8"),
-        headers={"User-Agent": "food-atlas-boston/1.0"},
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "food-atlas-boston/1.0",
+        },
     )
     try:
         with urlopen(request, timeout=10):
@@ -1301,14 +1340,21 @@ requested_view = get_query_param("view")
 if requested_view in view_options and requested_view != st.session_state.active_view:
     st.session_state.active_view = requested_view
 
-st.markdown('<div class="nav-bar-note">Navigate</div>', unsafe_allow_html=True)
-nav_columns = st.columns([1, 1, 1, 1, 4], gap="small")
-for nav_index, view_name in enumerate(view_options):
-    label = f"● {view_name}" if st.session_state.active_view == view_name else view_name
-    if nav_columns[nav_index].button(label, key=f"nav-{view_name}", use_container_width=True):
-        st.session_state.active_view = view_name
-        st.query_params["view"] = view_name
-        st.rerun()
+if get_query_param("menu") == "open":
+    with st.sidebar:
+        st.markdown("### Food Atlas Boston")
+        st.caption("Jump to a section.")
+        for view_name in view_options:
+            label = f"• {view_name}" if st.session_state.active_view == view_name else view_name
+            if st.button(label, key=f"side-nav-{view_name}", use_container_width=True):
+                st.session_state.active_view = view_name
+                st.query_params["view"] = view_name
+                st.query_params["menu"] = "open"
+                st.rerun()
+        if st.button("Close menu", key="side-nav-close", use_container_width=True):
+            if "menu" in st.query_params:
+                del st.query_params["menu"]
+            st.rerun()
 
 with st.container():
     st.markdown(
@@ -1571,34 +1617,70 @@ def render_restaurant_cards(restaurants, start_index=0, key_prefix="restaurant",
                         st.rerun()
 
 
-def render_ranking_cards(restaurants):
-    if not restaurants:
+def ranked_restaurant_entries(restaurants):
+    ranked_entries = []
+    previous_average = None
+    previous_rank = 0
+    for position, restaurant in enumerate(restaurants, start=1):
+        ratings = average_by_restaurant.get(restaurant["name"], [])
+        if not ratings:
+            continue
+
+        average_rating = round(sum(ratings) / len(ratings), 2)
+        if previous_average is not None and average_rating == previous_average:
+            rank = previous_rank
+        else:
+            rank = position
+            previous_average = average_rating
+            previous_rank = rank
+
+        ranked_entries.append(
+            {
+                "rank": rank,
+                "restaurant": restaurant,
+                "ratings": ratings,
+                "average_rating": average_rating,
+                "notes": [
+                    review.get("note", "").strip()
+                    for review in reviews_by_restaurant.get(restaurant["name"], [])
+                    if review.get("note", "").strip()
+                ],
+            }
+        )
+
+    return ranked_entries
+
+
+def render_ranking_cards(entries):
+    if not entries:
         return
 
-    for rank, restaurant in enumerate(restaurants, start=1):
-        ratings = average_by_restaurant.get(restaurant["name"], [])
-        notes = [
-            review.get("note", "").strip()
-            for review in reviews_by_restaurant.get(restaurant["name"], [])
-            if review.get("note", "").strip()
-        ]
-        average_rating = sum(ratings) / len(ratings)
-        note_html = (
-            f'<div class="ranking-card-note">"{html.escape(notes[-1])}"</div>'
-            if notes
-            else ""
-        )
+    for entry in entries:
+        restaurant = entry["restaurant"]
+        ratings = entry["ratings"]
+        notes = entry["notes"]
         st.markdown(
             f"""
             <div class="ranking-card" title="{html.escape(notes[-1] if notes else 'No notes yet.')}">
-                <div class="ranking-badge">#{rank} most authentic</div>
+                <div class="ranking-badge">#{entry["rank"]} most authentic</div>
                 <div class="ranking-card-title">{origin_flag} {html.escape(restaurant["name"])}</div>
-                <div class="ranking-card-meta">{star_rating_html(ratings)} · {average_rating:.1f} average · {len(ratings)} reviews</div>
-                {note_html}
+                <div class="ranking-card-meta">{star_rating_html(ratings)} · {entry["average_rating"]:.1f} average · {len(ratings)} reviews</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+        if notes:
+            with st.expander("See reviews"):
+                for note in notes:
+                    st.markdown(
+                        f'<div class="ranking-card-note">"{html.escape(note)}"</div>',
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.markdown(
+                '<div class="ranking-card-empty-note">No written review yet.</div>',
+                unsafe_allow_html=True,
+            )
 
 
 sorted_country_restaurants = sorted(
@@ -1706,7 +1788,11 @@ def render_reviews_view():
             for restaurant in sorted_country_restaurants
             if average_by_restaurant.get(restaurant["name"])
         ]
-        render_ranking_cards(ranked_restaurants[:8])
+        ranked_entries = ranked_restaurant_entries(ranked_restaurants)
+        render_ranking_cards(ranked_entries[:5])
+        if len(ranked_entries) > 5:
+            with st.expander("Show more"):
+                render_ranking_cards(ranked_entries[5:])
     else:
         st.markdown(
             """
@@ -1719,41 +1805,6 @@ def render_reviews_view():
         )
         if get_setting("REVIEW_SHEET_CSV_URL"):
             st.caption("If your Google Sheet already has responses, make sure the response Sheet is shared or published so the app can read its CSV URL.")
-
-    st.subheader("Review Notes")
-    notable_reviews = [
-        review
-        for review in filtered_reviews
-        if review.get("note", "").strip()
-    ]
-
-    if notable_reviews:
-        for review in notable_reviews[:6]:
-            st.markdown(
-                f"""
-                <div class="ranking-card">
-                    <div class="ranking-card-title">{origin_flag} {html.escape(review["restaurant"])}</div>
-                    <div class="ranking-card-meta">{star_rating_html([review["rating"]])} · {float(review["rating"]):.1f}</div>
-                    <div class="ranking-card-note">"{html.escape(review.get("note", ""))}"</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        if len(notable_reviews) > 6:
-            with st.expander("Show more notes"):
-                for review in notable_reviews[6:]:
-                    st.markdown(
-                        f"""
-                        <div class="ranking-card">
-                            <div class="ranking-card-title">{origin_flag} {html.escape(review["restaurant"])}</div>
-                            <div class="ranking-card-meta">{star_rating_html([review["rating"]])} · {float(review["rating"]):.1f}</div>
-                            <div class="ranking-card-note">"{html.escape(review.get("note", ""))}"</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-    else:
-        st.caption("No review notes yet.")
 
 
 def render_feedback_view():

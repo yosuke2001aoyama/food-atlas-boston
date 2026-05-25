@@ -21,22 +21,29 @@ http://localhost:8501/
 2. Upload `app.py`, `requirements.txt`, `.gitignore`, and this `README.md`.
 3. Deploy the repository with Streamlit Community Cloud or another Streamlit host.
 4. Add Streamlit secrets for Google Form review storage.
-5. Set environment variables or Streamlit secrets for Google Form delivery if feedback should go directly to operators.
+5. Set Streamlit secrets for feedback delivery if feedback should go directly to operators.
 
-## Google Form feedback integration
+## Feedback storage
 
-Create a Google Form with fields for topic, country, restaurant, message, and contact.
-Then configure these values in the deployed app environment:
+Feedback is separate from ratings. The clean setup is:
 
-```text
-GOOGLE_FORM_ACTION_URL=https://docs.google.com/forms/d/e/.../formResponse
-GOOGLE_FORM_TOPIC_FIELD=entry.xxxxx
-GOOGLE_FORM_COUNTRY_FIELD=entry.xxxxx
-GOOGLE_FORM_RESTAURANT_FIELD=entry.xxxxx
-GOOGLE_FORM_MESSAGE_FIELD=entry.xxxxx
-GOOGLE_FORM_CONTACT_FIELD=entry.xxxxx
+1. Create a second Google Form for operator feedback.
+2. Link that form to the same Google Sheet as the rating form.
+3. Google will create a separate response tab, so reviews and feedback stay separated.
+4. Add these values in **Streamlit Community Cloud → App settings → Secrets**.
+
+Create feedback form fields for topic, country, restaurant, message, and contact:
+
+```toml
+FEEDBACK_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/.../formResponse"
+FEEDBACK_FORM_TOPIC_FIELD = "entry.xxxxx"
+FEEDBACK_FORM_COUNTRY_FIELD = "entry.xxxxx"
+FEEDBACK_FORM_RESTAURANT_FIELD = "entry.xxxxx"
+FEEDBACK_FORM_MESSAGE_FIELD = "entry.xxxxx"
+FEEDBACK_FORM_CONTACT_FIELD = "entry.xxxxx"
 ```
 
+Older `GOOGLE_FORM_*` feedback secret names still work, but `FEEDBACK_FORM_*` is clearer.
 The app also keeps a local backup in `feedback.csv` when running locally.
 
 ## Ratings storage
