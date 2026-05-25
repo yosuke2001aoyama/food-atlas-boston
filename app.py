@@ -789,8 +789,8 @@ st.markdown(
             Discover Boston restaurants by home cuisine, explore them on a map, and rate how authentic they feel.
         </div>
         <div class="hero-country-strip">
-            <div class="hero-country-title">Start by typing your country</div>
-            We infer your home cuisine, narrow the Boston map, and help you score authenticity.
+            <div class="hero-country-title">Start with where you are from</div>
+            We use your home country to find restaurants from that cuisine and collect authenticity ratings from the right people.
         </div>
     </section>
     """,
@@ -1248,18 +1248,31 @@ all_restaurants = st.session_state.all_restaurants
 total_reviews = len(st.session_state.reviews)
 
 country_options = sorted(COUNTRY_CUISINES)
+view_options = ["Explore", "Rate", "Reviews", "Feedback"]
+requested_view = get_query_param("view")
+if requested_view in view_options and requested_view != st.session_state.active_view:
+    st.session_state.active_view = requested_view
+
+st.markdown('<div class="nav-bar-note">Navigate</div>', unsafe_allow_html=True)
+nav_columns = st.columns([1, 1, 1, 1, 4], gap="small")
+for nav_index, view_name in enumerate(view_options):
+    label = f"● {view_name}" if st.session_state.active_view == view_name else view_name
+    if nav_columns[nav_index].button(label, key=f"nav-{view_name}", use_container_width=True):
+        st.session_state.active_view = view_name
+        st.query_params["view"] = view_name
+        st.rerun()
 
 with st.container():
     st.markdown(
         """
         <div class="country-entry-panel">
-            <div class="country-button-title">Start with your home country</div>
-            <div class="country-entry-copy">Type your country and choose the closest match. We will use it to filter restaurants by cuisine.</div>
+            <div class="country-button-title">Where are you from?</div>
+            <div class="country-entry-copy">Choose your home country first. Your rating should reflect how authentic this cuisine feels to someone from that place.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    country_query = st.text_input("Country", placeholder="Try Japan, Italy, Mexico...")
+    country_query = st.text_input("Home country", placeholder="Try Japan, Italy, Mexico...")
     country_query_normalized = country_query.strip().lower()
     inferred_countries = [
         country
@@ -1275,7 +1288,7 @@ with st.container():
         else 0
     )
     inferred_country = st.selectbox(
-        "Closest country match",
+        "Home country match",
         inferred_countries,
         index=inferred_default_index,
         format_func=lambda country: f"{COUNTRY_FLAGS.get(country, '')} {country}",
@@ -1322,16 +1335,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-selected_country = st.session_state.get("selected_country", "Japan")
-selected_country_index = country_options.index(selected_country) if selected_country in country_options else 0
-origin_country = st.selectbox(
-    "Selected home country",
-    country_options,
-    index=selected_country_index,
-    format_func=lambda country: f"{COUNTRY_FLAGS.get(country, '')} {country}",
-)
-st.session_state.selected_country = origin_country
+origin_country = st.session_state.get("selected_country", "Japan")
 country_restaurants = [
     restaurant
     for restaurant in all_restaurants
@@ -1342,19 +1346,6 @@ st.markdown(
     f'<div class="country-chip"><span class="flag">{origin_flag}</span><span>Showing restaurants for {html.escape(origin_country)} cuisine authenticity</span></div>',
     unsafe_allow_html=True,
 )
-view_options = ["Explore", "Rate", "Reviews", "Feedback"]
-requested_view = get_query_param("view")
-if requested_view in view_options and requested_view != st.session_state.active_view:
-    st.session_state.active_view = requested_view
-
-st.markdown('<div class="nav-bar-note">Navigate</div>', unsafe_allow_html=True)
-nav_columns = st.columns([1, 1, 1, 1, 4], gap="small")
-for nav_index, view_name in enumerate(view_options):
-    label = f"● {view_name}" if st.session_state.active_view == view_name else view_name
-    if nav_columns[nav_index].button(label, key=f"nav-{view_name}", use_container_width=True):
-        st.session_state.active_view = view_name
-        st.query_params["view"] = view_name
-        st.rerun()
 
 selected_from_map = st.session_state.get("map_selected_restaurant") or get_query_param("selected")
 selected_from_map_restaurant = next(
