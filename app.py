@@ -288,6 +288,15 @@ st.markdown(
         color: var(--accent-dark);
     }
 
+    .nav-bar-note {
+        color: var(--muted);
+        font-size: 0.85rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        margin: 0.35rem 0 0.5rem;
+        text-transform: uppercase;
+    }
+
     .hero {
         background:
             linear-gradient(90deg, rgba(8, 34, 48, 0.86), rgba(15, 127, 140, 0.22)),
@@ -478,23 +487,6 @@ st.markdown(
     }
 
     .stTabs [aria-selected="true"] {
-        color: var(--accent-dark);
-    }
-
-    [data-testid="stRadio"] div[role="radiogroup"] {
-        border-bottom: 2px solid var(--line);
-        display: flex;
-        gap: 1.2rem;
-        padding-bottom: 0.35rem;
-    }
-
-    [data-testid="stRadio"] label {
-        color: var(--muted);
-        font-size: 1.08rem;
-        font-weight: 850;
-    }
-
-    [data-testid="stRadio"] label:has(input:checked) {
         color: var(--accent-dark);
     }
 
@@ -788,12 +780,6 @@ st.markdown(
                 </svg>
             </span>
             <span>Food Atlas Boston</span>
-        </div>
-        <div class="nav-links">
-            <a href="?view=Explore">Restaurants</a>
-            <a href="?view=Explore#map-section">Map</a>
-            <a href="?view=Reviews">Reviews</a>
-            <a href="?view=Feedback">Feedback</a>
         </div>
     </div>
     <section class="hero">
@@ -1126,19 +1112,50 @@ def load_reviews_from_published_csv():
         request = Request(csv_url, headers={"User-Agent": "food-atlas-boston/1.0"})
         with urlopen(request, timeout=10) as response:
             csv_text = response.read().decode("utf-8")
-        return [
-            {
-                "timestamp": row.get("timestamp", ""),
-                "country": row.get("country", ""),
-                "restaurant": row.get("restaurant", ""),
-                "rating": float(row.get("rating", 0) or 0),
-                "note": row.get("note", ""),
-            }
-            for row in csv.DictReader(csv_text.splitlines())
-            if row.get("restaurant") and row.get("rating")
-        ]
+        return parse_review_csv(csv_text)
     except Exception:
         return None
+
+
+def normalized_key(value):
+    return str(value or "").strip().lower().replace(" ", "").replace("_", "")
+
+
+def first_value(row, candidates):
+    normalized_row = {
+        normalized_key(key): value
+        for key, value in row.items()
+    }
+    for candidate in candidates:
+        value = normalized_row.get(normalized_key(candidate))
+        if value not in (None, ""):
+            return value
+    return ""
+
+
+def parse_review_csv(csv_text):
+    reviews = []
+    for row in csv.DictReader(csv_text.splitlines()):
+        restaurant = first_value(row, ["restaurant", "レストラン", "店", "店舗"])
+        rating = first_value(row, ["rating", "score", "your rating", "評価", "採点"])
+        if not restaurant or not rating:
+            continue
+
+        try:
+            rating_value = float(rating)
+        except ValueError:
+            continue
+
+        reviews.append(
+            {
+                "timestamp": first_value(row, ["timestamp", "time", "日時", "タイムスタンプ"]),
+                "country": first_value(row, ["country", "home country", "国", "出身国"]),
+                "restaurant": restaurant,
+                "rating": rating_value,
+                "note": first_value(row, ["note", "notes", "comment", "備考", "コメント"]),
+            }
+        )
+    return reviews
 
 
 def save_review(review):
@@ -1217,8 +1234,7 @@ if st.session_state.get("data_version") != DATA_VERSION:
     st.session_state.all_restaurants, st.session_state.data_source = load_restaurants()
     st.session_state.data_version = DATA_VERSION
 
-if "reviews" not in st.session_state:
-    st.session_state.reviews = load_reviews()
+st.session_state.reviews = load_reviews()
 
 if "feedback" not in st.session_state:
     st.session_state.feedback = []
@@ -1331,14 +1347,14 @@ requested_view = get_query_param("view")
 if requested_view in view_options and requested_view != st.session_state.active_view:
     st.session_state.active_view = requested_view
 
-active_view = st.radio(
-    "View",
-    view_options,
-    index=view_options.index(st.session_state.active_view),
-    horizontal=True,
-    label_visibility="collapsed",
-)
-st.session_state.active_view = active_view
+st.markdown('<div class="nav-bar-note">Navigate</div>', unsafe_allow_html=True)
+nav_columns = st.columns([1, 1, 1, 1, 4], gap="small")
+for nav_index, view_name in enumerate(view_options):
+    label = f"● {view_name}" if st.session_state.active_view == view_name else view_name
+    if nav_columns[nav_index].button(label, key=f"nav-{view_name}", use_container_width=True):
+        st.session_state.active_view = view_name
+        st.query_params["view"] = view_name
+        st.rerun()
 
 selected_from_map = st.session_state.get("map_selected_restaurant") or get_query_param("selected")
 selected_from_map_restaurant = next(
@@ -1629,6 +1645,8 @@ def render_reviews_view():
             """,
             unsafe_allow_html=True,
         )
+        if get_setting("REVIEW_SHEET_CSV_URL"):
+            st.caption("If your Google Sheet already has responses, make sure the response Sheet is shared or published so the app can read its CSV URL.")
 
     st.subheader("Review Notes")
     review_rows = [

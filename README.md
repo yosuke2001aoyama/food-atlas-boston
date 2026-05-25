@@ -59,7 +59,7 @@ Link the form to a Google Sheet. In the response Sheet, rename the columns to:
 timestamp,country,restaurant,rating,note
 ```
 
-Then publish that response Sheet as CSV and add these values in **Streamlit Community Cloud → App settings → Secrets**:
+Then publish that response Sheet as CSV and add these values in **Streamlit Community Cloud → App settings → Secrets**. Make sure the `gid` belongs to the Google Form response tab, not an empty first sheet.
 
 ```toml
 REVIEW_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"
