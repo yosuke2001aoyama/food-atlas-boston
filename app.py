@@ -242,8 +242,15 @@ st.markdown(
 
     .block-container {
         max-width: 1180px;
-        padding-top: 5.25rem;
+        padding-top: 2.2rem;
         padding-bottom: 3rem;
+    }
+
+    .stApp > header,
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    #MainMenu {
+        display: none;
     }
 
     h1 {
@@ -263,7 +270,7 @@ st.markdown(
         align-items: center;
         display: flex;
         gap: 0.65rem;
-        margin-top: -0.4rem;
+        margin-top: 0.15rem;
     }
 
     .brand-title {
@@ -298,7 +305,7 @@ st.markdown(
         border: 1px solid var(--line);
         border-radius: 8px;
         box-shadow: 0 18px 42px rgba(15, 127, 140, 0.13);
-        margin: 0.35rem 0 1rem;
+        margin: 0.25rem 0 1rem;
         padding: 1rem;
     }
 
@@ -486,6 +493,32 @@ st.markdown(
         background: #075766;
         border-color: #075766;
         color: #ffffff;
+    }
+
+    div[data-testid="column"]:has(button[aria-label="Open section menu"]) button,
+    div[data-testid="column"]:has(button[kind="tertiary"]) button,
+    .stButton button[kind="tertiary"] {
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        color: var(--muted) !important;
+        font-weight: 800 !important;
+        min-height: 2.3rem !important;
+        padding: 0.2rem 0.35rem !important;
+    }
+
+    div[data-testid="column"]:has(button[aria-label="Open section menu"]) button {
+        color: var(--accent-dark) !important;
+        font-size: 1.35rem !important;
+    }
+
+    div[data-testid="column"]:has(button[kind="tertiary"]) button:hover,
+    div[data-testid="column"]:has(button[aria-label="Open section menu"]) button:hover,
+    .stButton button[kind="tertiary"]:hover {
+        background: transparent !important;
+        color: var(--accent-dark) !important;
+        text-decoration: underline;
+        text-underline-offset: 0.35rem;
     }
 
     div[data-baseweb="select"] > div,
@@ -782,14 +815,11 @@ st.markdown(
     }
 
     .country-entry-panel {
-        background:
-            linear-gradient(135deg, rgba(255,255,255,0.95), rgba(230,246,248,0.86)),
-            radial-gradient(circle at 96% 20%, rgba(29,78,216,0.12), transparent 24%);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        box-shadow: 0 12px 34px rgba(15, 127, 140, 0.12);
-        margin: 1.4rem 0 1.4rem;
-        padding: 1.25rem;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        margin: 0 0 0.85rem;
+        padding: 0;
     }
 
     .country-button-title {
@@ -857,7 +887,7 @@ st.markdown(
 
 header_columns = st.columns([0.08, 0.48, 0.1, 0.1, 0.12, 0.12], gap="small")
 with header_columns[0]:
-    if st.button("🌐", key="open-inline-menu", help="Open section menu"):
+    if st.button("🌐", key="open-inline-menu", help="Open section menu", type="tertiary"):
         st.session_state.menu_open = not st.session_state.menu_open
 
 with header_columns[1]:
@@ -871,30 +901,22 @@ with header_columns[1]:
     )
 
 for column, view_name in zip(header_columns[2:], VIEW_OPTIONS):
-    label = f"• {view_name}" if st.session_state.active_view == view_name else view_name
-    if column.button(label, key=f"top-nav-{view_name}", use_container_width=True):
+    if column.button(view_name, key=f"top-nav-{view_name}", use_container_width=True, type="tertiary"):
         switch_view(view_name)
         st.rerun()
 
 if st.session_state.menu_open:
-    st.markdown(
-        """
-        <div class="inline-menu">
-            <div class="inline-menu-title">Food Atlas Boston</div>
-            <div class="inline-menu-copy">Choose a section without leaving this page.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    menu_columns = st.columns([1, 1, 1, 1, 1], gap="small")
-    for column, view_name in zip(menu_columns[:4], VIEW_OPTIONS):
-        label = f"• {view_name}" if st.session_state.active_view == view_name else view_name
-        if column.button(label, key=f"inline-menu-{view_name}", use_container_width=True):
-            switch_view(view_name)
+    menu_area, _ = st.columns([0.42, 0.58], gap="large")
+    with menu_area:
+        st.markdown('<div class="inline-menu">', unsafe_allow_html=True)
+        for view_name in VIEW_OPTIONS:
+            if st.button(view_name, key=f"inline-menu-{view_name}", use_container_width=True, type="tertiary"):
+                switch_view(view_name)
+                st.rerun()
+        if st.button("Close menu", key="inline-menu-close", use_container_width=True, type="tertiary"):
+            st.session_state.menu_open = False
             st.rerun()
-    if menu_columns[4].button("Close", key="inline-menu-close", use_container_width=True):
-        st.session_state.menu_open = False
-        st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown(
     """
@@ -1371,7 +1393,7 @@ total_reviews = len(st.session_state.reviews)
 country_options = sorted(COUNTRY_CUISINES)
 view_options = VIEW_OPTIONS
 
-with st.container():
+with st.container(border=True):
     st.markdown(
         """
         <div class="country-entry-panel">
