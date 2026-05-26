@@ -207,50 +207,60 @@ CURATED_PRIORITY = {
 st.set_page_config(page_title="Food Atlas Boston", layout="wide")
 
 VIEW_OPTIONS = ["Explore", "Rate", "Reviews", "Feedback"]
+VIEW_LABELS = {
+    "Explore": "Explore",
+    "Rate": "Rate",
+    "Reviews": "Reviews",
+    "Feedback": "Any issues?",
+}
 initial_view = st.query_params.get("view")
 if isinstance(initial_view, list):
     initial_view = initial_view[0] if initial_view else None
 if "active_view" not in st.session_state:
     st.session_state.active_view = initial_view if initial_view in VIEW_OPTIONS else "Explore"
-if "menu_open" not in st.session_state:
-    st.session_state.menu_open = False
 
 
 def switch_view(view_name):
     st.session_state.active_view = view_name
-    st.session_state.menu_open = False
 
 
 st.markdown(
     """
     <style>
     :root {
-        --accent: #0f7f8c;
-        --accent-dark: #075766;
-        --accent-soft: #e6f6f8;
-        --ink: #1f2937;
-        --muted: #64748b;
-        --line: #d9e5ea;
-        --surface: #f5fbfd;
+        --accent: #a67c2d;
+        --accent-dark: #6f4f1f;
+        --accent-soft: #f4efe3;
+        --ink: #17202d;
+        --muted: #667085;
+        --line: #ded6c7;
+        --surface: #fbfaf6;
+        --oxblood: #401f1f;
     }
 
     .stApp {
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: linear-gradient(180deg, #eef9fc 0%, #ffffff 44%);
+        background: linear-gradient(180deg, #f8fbfb 0%, #fbfaf6 38%, #ffffff 100%);
         color: var(--ink);
     }
 
     .block-container {
         max-width: 1180px;
-        padding-top: 2.2rem;
+        padding-top: 5.8rem;
         padding-bottom: 3rem;
     }
 
     .stApp > header,
+    [data-testid="stHeader"],
+    [data-testid="stHeaderActionElements"],
     [data-testid="stToolbar"],
+    [data-testid="stStatusWidget"],
     [data-testid="stDecoration"],
+    [data-testid="stDeployButton"],
+    [data-testid="stBaseButton-header"],
     #MainMenu {
-        display: none;
+        display: none !important;
+        visibility: hidden !important;
     }
 
     h1 {
@@ -283,43 +293,15 @@ st.markdown(
 
     .brand-mark {
         align-items: center;
-        background: linear-gradient(135deg, #0f7f8c, #1d4ed8);
+        background: transparent;
+        border: 1px solid rgba(166,124,45,0.45);
         border-radius: 999px;
-        color: #ffffff;
+        color: var(--accent-dark);
         display: inline-flex;
-        height: 38px;
+        height: 34px;
         justify-content: center;
         text-decoration: none;
-        width: 38px;
-    }
-
-    .brand-mark:hover {
-        color: #ffffff;
-        filter: brightness(1.06);
-    }
-
-    .inline-menu {
-        background:
-            linear-gradient(135deg, rgba(230,246,248,0.96), rgba(255,255,255,0.96)),
-            radial-gradient(circle at 10% 10%, rgba(15,127,140,0.18), transparent 28%);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        box-shadow: 0 18px 42px rgba(15, 127, 140, 0.13);
-        margin: 0.25rem 0 1rem;
-        padding: 1rem;
-    }
-
-    .inline-menu-title {
-        color: var(--ink);
-        font-family: Georgia, "Times New Roman", serif;
-        font-size: 1.2rem;
-        font-weight: 850;
-    }
-
-    .inline-menu-copy {
-        color: var(--muted);
-        font-size: 0.9rem;
-        margin-top: 0.2rem;
+        width: 34px;
     }
 
     .nav-bar-note {
@@ -333,7 +315,7 @@ st.markdown(
 
     .hero {
         background:
-            linear-gradient(90deg, rgba(8, 34, 48, 0.86), rgba(15, 127, 140, 0.22)),
+            linear-gradient(90deg, rgba(18, 22, 28, 0.9), rgba(64, 31, 31, 0.42)),
             url("https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1800&q=80");
         background-position: center;
         background-size: cover;
@@ -348,7 +330,7 @@ st.markdown(
     .hero-kicker {
         font-size: 0.9rem;
         font-weight: 800;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.16em;
         margin-bottom: 0.8rem;
         text-transform: uppercase;
     }
@@ -383,10 +365,10 @@ st.markdown(
     }
 
     .hero-country-strip {
-        background: #ffffff;
-        border: 1px solid var(--line);
+        background: rgba(251, 250, 246, 0.94);
+        border: 1px solid rgba(222, 214, 199, 0.85);
         border-radius: 8px;
-        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
         color: var(--ink);
         margin-top: 2rem;
         max-width: 850px;
@@ -481,8 +463,8 @@ st.markdown(
     }
 
     .stButton > button {
-        background: linear-gradient(135deg, #0f7f8c, #1d4ed8);
-        border: 1px solid #0f7f8c;
+        background: linear-gradient(135deg, #17202d, #401f1f);
+        border: 1px solid #17202d;
         border-radius: 6px;
         color: #ffffff;
         font-weight: 700;
@@ -490,30 +472,23 @@ st.markdown(
     }
 
     .stButton > button:hover {
-        background: #075766;
-        border-color: #075766;
+        background: var(--oxblood);
+        border-color: var(--oxblood);
         color: #ffffff;
     }
 
-    div[data-testid="column"]:has(button[aria-label="Open section menu"]) button,
     div[data-testid="column"]:has(button[kind="tertiary"]) button,
     .stButton button[kind="tertiary"] {
         background: transparent !important;
         border: 0 !important;
         box-shadow: none !important;
         color: var(--muted) !important;
-        font-weight: 800 !important;
+        font-weight: 750 !important;
         min-height: 2.3rem !important;
         padding: 0.2rem 0.35rem !important;
     }
 
-    div[data-testid="column"]:has(button[aria-label="Open section menu"]) button {
-        color: var(--accent-dark) !important;
-        font-size: 1.35rem !important;
-    }
-
     div[data-testid="column"]:has(button[kind="tertiary"]) button:hover,
-    div[data-testid="column"]:has(button[aria-label="Open section menu"]) button:hover,
     .stButton button[kind="tertiary"]:hover {
         background: transparent !important;
         color: var(--accent-dark) !important;
@@ -525,6 +500,7 @@ st.markdown(
     div[data-baseweb="input"] > div,
     textarea {
         border-radius: 6px !important;
+        background: rgba(255,255,255,0.92) !important;
     }
 
     [data-testid="stDataFrame"] {
@@ -823,7 +799,9 @@ st.markdown(
     }
 
     .country-button-title {
-        color: var(--accent-dark);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.4rem;
         font-weight: 900;
         margin-bottom: 0.3rem;
     }
@@ -885,10 +863,22 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-header_columns = st.columns([0.08, 0.48, 0.1, 0.1, 0.12, 0.12], gap="small")
+header_columns = st.columns([0.06, 0.52, 0.1, 0.1, 0.12, 0.1], gap="small")
 with header_columns[0]:
-    if st.button("🌐", key="open-inline-menu", help="Open section menu", type="tertiary"):
-        st.session_state.menu_open = not st.session_state.menu_open
+    st.markdown(
+        """
+        <div class="brand-mark" title="Food Atlas Boston">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+                <circle cx="12" cy="12" r="8.5"></circle>
+                <path d="M3.8 9h16.4"></path>
+                <path d="M3.8 15h16.4"></path>
+                <path d="M12 3.5a13 13 0 0 1 0 17"></path>
+                <path d="M12 3.5a13 13 0 0 0 0 17"></path>
+            </svg>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 with header_columns[1]:
     st.markdown(
@@ -901,22 +891,9 @@ with header_columns[1]:
     )
 
 for column, view_name in zip(header_columns[2:], VIEW_OPTIONS):
-    if column.button(view_name, key=f"top-nav-{view_name}", use_container_width=True, type="tertiary"):
+    if column.button(VIEW_LABELS[view_name], key=f"top-nav-{view_name}", use_container_width=True, type="tertiary"):
         switch_view(view_name)
         st.rerun()
-
-if st.session_state.menu_open:
-    menu_area, _ = st.columns([0.42, 0.58], gap="large")
-    with menu_area:
-        st.markdown('<div class="inline-menu">', unsafe_allow_html=True)
-        for view_name in VIEW_OPTIONS:
-            if st.button(view_name, key=f"inline-menu-{view_name}", use_container_width=True, type="tertiary"):
-                switch_view(view_name)
-                st.rerun()
-        if st.button("Close menu", key="inline-menu-close", use_container_width=True, type="tertiary"):
-            st.session_state.menu_open = False
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown(
     """
@@ -1398,7 +1375,7 @@ with st.container(border=True):
         """
         <div class="country-entry-panel">
             <div class="country-button-title">Where are you from?</div>
-            <div class="country-entry-copy">Choose your home country first. Your rating should reflect how authentic this cuisine feels to someone from that place.</div>
+            <div class="country-entry-copy">Start with your home country. We will show restaurants from that cuisine and collect authenticity ratings from people who know it best.</div>
         </div>
         """,
         unsafe_allow_html=True,
