@@ -42,14 +42,15 @@ What should we fix?
 Email optional
 ```
 
-Then configure these values. `FEEDBACK_FORM_COUNTRY_FIELD` is optional; only use it if the feedback form also has a country question.
+Then configure these values. The current feedback form is already mapped below. `FEEDBACK_FORM_COUNTRY_FIELD` is optional; only use it if the feedback form also has a country question.
 
 ```toml
-FEEDBACK_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/.../formResponse"
-FEEDBACK_FORM_TOPIC_FIELD = "entry.xxxxx"
-FEEDBACK_FORM_RESTAURANT_FIELD = "entry.xxxxx"
-FEEDBACK_FORM_MESSAGE_FIELD = "entry.xxxxx"
-FEEDBACK_FORM_CONTACT_FIELD = "entry.xxxxx"
+FEEDBACK_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfBaDjHXkAsVflYjAsfQ0PqesjUyoB5xa_I1G5v_RKrgJV3rA/formResponse"
+FEEDBACK_FORM_TIMESTAMP_FIELD = "entry.1002726540"
+FEEDBACK_FORM_TOPIC_FIELD = "entry.1301236709"
+FEEDBACK_FORM_RESTAURANT_FIELD = "entry.744111579"
+FEEDBACK_FORM_MESSAGE_FIELD = "entry.1754693192"
+FEEDBACK_FORM_CONTACT_FIELD = "entry.734363110"
 # Optional:
 # FEEDBACK_FORM_COUNTRY_FIELD = "entry.xxxxx"
 ```

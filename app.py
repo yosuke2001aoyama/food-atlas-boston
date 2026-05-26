@@ -1348,6 +1348,7 @@ def load_reviews():
 def configured_google_form():
     action_url = get_setting("FEEDBACK_FORM_ACTION_URL") or get_setting("GOOGLE_FORM_ACTION_URL")
     field_map = {
+        "timestamp": get_setting("FEEDBACK_FORM_TIMESTAMP_FIELD") or get_setting("GOOGLE_FORM_TIMESTAMP_FIELD"),
         "topic": get_setting("FEEDBACK_FORM_TOPIC_FIELD") or get_setting("GOOGLE_FORM_TOPIC_FIELD"),
         "country": get_setting("FEEDBACK_FORM_COUNTRY_FIELD") or get_setting("GOOGLE_FORM_COUNTRY_FIELD"),
         "restaurant": get_setting("FEEDBACK_FORM_RESTAURANT_FIELD") or get_setting("GOOGLE_FORM_RESTAURANT_FIELD"),
@@ -1369,6 +1370,8 @@ def send_feedback_to_google_form(feedback):
         field_map["message"]: feedback["message"],
         field_map["contact"]: feedback["contact"],
     }
+    if field_map.get("timestamp"):
+        payload[field_map["timestamp"]] = feedback["timestamp"]
     if field_map.get("country"):
         payload[field_map["country"]] = feedback["country"]
     request = Request(
