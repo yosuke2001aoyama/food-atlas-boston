@@ -32,15 +32,26 @@ Feedback is separate from ratings. The clean setup is:
 3. Google will create a separate response tab, so reviews and feedback stay separated.
 4. Add these values in **Streamlit Community Cloud → App settings → Secrets**.
 
-Create feedback form fields for topic, country, restaurant, message, and contact:
+Create a feedback Google Form with these fields:
+
+```text
+timestamp
+Issue type
+Restaurant name optional
+What should we fix?
+Email optional
+```
+
+Then configure these values. `FEEDBACK_FORM_COUNTRY_FIELD` is optional; only use it if the feedback form also has a country question.
 
 ```toml
 FEEDBACK_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/.../formResponse"
 FEEDBACK_FORM_TOPIC_FIELD = "entry.xxxxx"
-FEEDBACK_FORM_COUNTRY_FIELD = "entry.xxxxx"
 FEEDBACK_FORM_RESTAURANT_FIELD = "entry.xxxxx"
 FEEDBACK_FORM_MESSAGE_FIELD = "entry.xxxxx"
 FEEDBACK_FORM_CONTACT_FIELD = "entry.xxxxx"
+# Optional:
+# FEEDBACK_FORM_COUNTRY_FIELD = "entry.xxxxx"
 ```
 
 Older `GOOGLE_FORM_*` feedback secret names still work, but `FEEDBACK_FORM_*` is clearer.

@@ -218,10 +218,13 @@ if isinstance(initial_view, list):
     initial_view = initial_view[0] if initial_view else None
 if "active_view" not in st.session_state:
     st.session_state.active_view = initial_view if initial_view in VIEW_OPTIONS else "Explore"
+if st.session_state.get("top-navigation") != st.session_state.active_view:
+    st.session_state["top-navigation"] = st.session_state.active_view
 
 
 def switch_view(view_name):
     st.session_state.active_view = view_name
+    st.session_state["top-navigation"] = view_name
 
 
 st.markdown(
@@ -302,6 +305,10 @@ st.markdown(
         justify-content: center;
         text-decoration: none;
         width: 34px;
+    }
+
+    .top-nav-wrap {
+        margin-top: -0.15rem;
     }
 
     .nav-bar-note {
@@ -475,6 +482,30 @@ st.markdown(
         background: var(--oxblood);
         border-color: var(--oxblood);
         color: #ffffff;
+    }
+
+    div[data-testid="stSegmentedControl"] {
+        justify-content: flex-end;
+    }
+
+    div[data-testid="stSegmentedControl"] label {
+        background: transparent !important;
+        border: 0 !important;
+        color: var(--muted) !important;
+        font-size: 1.02rem !important;
+        font-weight: 750 !important;
+        padding: 0.35rem 0.45rem !important;
+    }
+
+    div[data-testid="stSegmentedControl"] label[data-baseweb="radio"] {
+        box-shadow: none !important;
+    }
+
+    div[data-testid="stSegmentedControl"] label[aria-checked="true"],
+    div[data-testid="stSegmentedControl"] label:hover {
+        color: var(--accent-dark) !important;
+        text-decoration: underline;
+        text-underline-offset: 0.35rem;
     }
 
     div[data-testid="column"]:has(button[kind="tertiary"]) button,
@@ -863,22 +894,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-header_columns = st.columns([0.06, 0.52, 0.1, 0.1, 0.12, 0.1], gap="small")
+header_columns = st.columns([0.06, 0.45, 0.49], gap="small")
 with header_columns[0]:
-    st.markdown(
-        """
-        <div class="brand-mark" title="Food Atlas Boston">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
-                <circle cx="12" cy="12" r="8.5"></circle>
-                <path d="M3.8 9h16.4"></path>
-                <path d="M3.8 15h16.4"></path>
-                <path d="M12 3.5a13 13 0 0 1 0 17"></path>
-                <path d="M12 3.5a13 13 0 0 0 0 17"></path>
-            </svg>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if st.button("◎", key="brand-home", help="Back to Explore", type="tertiary"):
+        switch_view("Explore")
+        st.rerun()
 
 with header_columns[1]:
     st.markdown(
@@ -890,9 +910,19 @@ with header_columns[1]:
         unsafe_allow_html=True,
     )
 
-for column, view_name in zip(header_columns[2:], VIEW_OPTIONS):
-    if column.button(VIEW_LABELS[view_name], key=f"top-nav-{view_name}", use_container_width=True, type="tertiary"):
-        switch_view(view_name)
+with header_columns[2]:
+    st.markdown('<div class="top-nav-wrap">', unsafe_allow_html=True)
+    selected_view = st.segmented_control(
+        "Section",
+        VIEW_OPTIONS,
+        default=st.session_state.active_view,
+        format_func=lambda view_name: VIEW_LABELS[view_name],
+        label_visibility="collapsed",
+        key="top-navigation",
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+    if selected_view and selected_view != st.session_state.active_view:
+        switch_view(selected_view)
         st.rerun()
 
 st.markdown(
@@ -1329,16 +1359,18 @@ def configured_google_form():
 
 def send_feedback_to_google_form(feedback):
     action_url, field_map = configured_google_form()
-    if not action_url or not all(field_map.values()):
+    required_fields = ["topic", "restaurant", "message", "contact"]
+    if not action_url or not all(field_map[field_name] for field_name in required_fields):
         return False
 
     payload = {
         field_map["topic"]: feedback["topic"],
-        field_map["country"]: feedback["country"],
         field_map["restaurant"]: feedback["restaurant"],
         field_map["message"]: feedback["message"],
         field_map["contact"]: feedback["contact"],
     }
+    if field_map.get("country"):
+        payload[field_map["country"]] = feedback["country"]
     request = Request(
         action_url,
         data=urlencode(payload).encode("utf-8"),
