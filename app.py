@@ -2,6 +2,7 @@ import csv
 import html
 import json
 import os
+import re
 from datetime import datetime
 from urllib.error import URLError
 from urllib.parse import urlencode
@@ -15,10 +16,36 @@ from streamlit_folium import st_folium
 
 BOSTON_CENTER = [42.3601, -71.0589]
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-DATA_VERSION = "boston-restaurants-v8-curated-priority"
+APP_NAME = "HomeTaste Boston"
+DATA_VERSION = "hometaste-boston-v1"
 RATING_FORM_ANCHOR = "rate-restaurant"
 FEEDBACK_FILE = "feedback.csv"
 REVIEWS_FILE = "reviews.csv"
+
+RELATIONSHIP_WEIGHTS = {
+    "I grew up with this cuisine": 1.0,
+    "My family cooks this cuisine": 0.9,
+    "I lived in this country/region for 3+ years": 0.8,
+    "I lived there for 1-3 years": 0.6,
+    "I speak the language and regularly eat this cuisine": 0.5,
+    "I'm a fan and want to leave a general dining note": 0.1,
+}
+
+LIVED_EXPERIENCE_RELATIONSHIPS = {
+    relationship
+    for relationship, weight in RELATIONSHIP_WEIGHTS.items()
+    if weight >= 0.5
+}
+
+DIMENSION_FIELDS = [
+    ("taste_score", "Taste"),
+    ("menu_score", "Menu"),
+    ("ingredient_score", "Ingredients"),
+    ("atmosphere_score", "Atmosphere"),
+    ("people_language_score", "People / language"),
+    ("regional_specificity_score", "Regional specificity"),
+    ("reminds_home_score", "Reminds me of home"),
+]
 
 COUNTRY_FLAGS = {
     "Argentina": "🇦🇷",
@@ -204,27 +231,36 @@ CURATED_PRIORITY = {
 }
 
 
-st.set_page_config(page_title="Food Atlas Boston", layout="wide")
+st.set_page_config(page_title=APP_NAME, layout="wide")
 
-VIEW_OPTIONS = ["Explore", "Rate", "Reviews", "Feedback"]
+VIEW_OPTIONS = ["Explore", "Check", "Voices", "Report"]
+TOP_NAV_OPTIONS = VIEW_OPTIONS
 VIEW_LABELS = {
     "Explore": "Explore",
-    "Rate": "Rate",
-    "Reviews": "Reviews",
-    "Feedback": "Any issues?",
+    "Check": "Add a Check",
+    "Voices": "Voices",
+    "Report": "Report issue",
 }
 initial_view = st.query_params.get("view")
 if isinstance(initial_view, list):
     initial_view = initial_view[0] if initial_view else None
-if "active_view" not in st.session_state:
-    st.session_state.active_view = initial_view if initial_view in VIEW_OPTIONS else "Explore"
-if st.session_state.get("top-navigation") != st.session_state.active_view:
-    st.session_state["top-navigation"] = st.session_state.active_view
+legacy_view_aliases = {
+    "Rate": "Check",
+    "Reviews": "Voices",
+    "Feedback": "Report",
+}
+initial_view = legacy_view_aliases.get(initial_view, initial_view)
+if initial_view in VIEW_OPTIONS:
+    st.session_state.active_view = initial_view
+elif "active_view" not in st.session_state:
+    st.session_state.active_view = "Explore"
+initial_menu = st.query_params.get("menu")
+if isinstance(initial_menu, list):
+    initial_menu = initial_menu[0] if initial_menu else None
 
 
 def switch_view(view_name):
     st.session_state.active_view = view_name
-    st.session_state["top-navigation"] = view_name
 
 
 st.markdown(
@@ -249,8 +285,16 @@ st.markdown(
 
     .block-container {
         max-width: 1180px;
-        padding-top: 5.8rem;
+        padding-top: 2.4rem;
         padding-bottom: 3rem;
+    }
+
+    .site-header {
+        align-items: center;
+        display: flex;
+        gap: 1.5rem;
+        justify-content: space-between;
+        margin: 0 0 1.7rem;
     }
 
     .stApp > header,
@@ -282,13 +326,13 @@ st.markdown(
     .brand-row {
         align-items: center;
         display: flex;
-        gap: 0.65rem;
-        margin-top: 0.15rem;
+        gap: 1.1rem;
+        min-width: 0;
     }
 
     .brand-title {
         font-family: Georgia, "Times New Roman", serif;
-        font-size: 1.45rem;
+        font-size: 2.15rem;
         font-weight: 800;
         line-height: 1;
         white-space: nowrap;
@@ -297,18 +341,96 @@ st.markdown(
     .brand-mark {
         align-items: center;
         background: transparent;
-        border: 1px solid rgba(166,124,45,0.45);
+        border: 0;
         border-radius: 999px;
         color: var(--accent-dark);
         display: inline-flex;
-        height: 34px;
+        font-size: 1.45rem;
+        height: 38px;
         justify-content: center;
         text-decoration: none;
-        width: 34px;
+        width: 38px;
     }
 
-    .top-nav-wrap {
-        margin-top: -0.15rem;
+    .brand-mark:hover {
+        color: var(--accent);
+        transform: translateY(-1px);
+    }
+
+    .top-nav-links {
+        align-items: center;
+        display: flex;
+        gap: clamp(1.25rem, 4vw, 3rem);
+        justify-content: flex-end;
+    }
+
+    .top-nav-links a {
+        border-bottom: 1px solid transparent;
+        color: var(--muted);
+        font-size: 1rem;
+        font-weight: 800;
+        padding: 0.25rem 0;
+        text-decoration: none;
+    }
+
+    .top-nav-links a:hover,
+    .top-nav-links a.active {
+        border-bottom-color: var(--accent);
+        color: var(--accent-dark);
+    }
+
+    .feedback-cta {
+        align-items: center;
+        background: linear-gradient(135deg, rgba(244,239,227,0.92), rgba(255,255,255,0.8));
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--muted);
+        display: flex;
+        gap: 0.75rem;
+        justify-content: space-between;
+        margin: 0.25rem 0 1.5rem;
+        padding: 0.8rem 1rem;
+    }
+
+    .feedback-cta strong {
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+    }
+
+    .feedback-cta a {
+        color: var(--accent-dark);
+        font-weight: 850;
+        text-decoration: none;
+    }
+
+    .feedback-cta a:hover {
+        text-decoration: underline;
+        text-underline-offset: 0.25rem;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: rgba(251,250,246,0.97);
+        border-right: 1px solid var(--line);
+    }
+
+    section[data-testid="stSidebar"] .side-nav-link {
+        border-bottom: 1px solid rgba(222,214,199,0.65);
+        color: var(--muted);
+        display: block;
+        font-size: 1.05rem;
+        font-weight: 800;
+        padding: 0.85rem 0;
+        text-decoration: none;
+    }
+
+    section[data-testid="stSidebar"] .side-nav-link:hover,
+    section[data-testid="stSidebar"] .side-nav-link.active {
+        color: var(--accent-dark);
+    }
+
+    section[data-testid="stSidebar"] .side-nav-link.subtle {
+        color: var(--muted);
+        font-size: 0.92rem;
     }
 
     .nav-bar-note {
@@ -389,6 +511,28 @@ st.markdown(
         letter-spacing: 0.06em;
         margin-bottom: 0.75rem;
         text-transform: uppercase;
+    }
+
+    .about-panel {
+        background: linear-gradient(135deg, rgba(244,239,227,0.92), rgba(255,255,255,0.86));
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin: 1.25rem 0 1.25rem;
+        padding: 1.1rem 1.25rem;
+    }
+
+    .about-eyebrow {
+        color: var(--accent-dark);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.25rem;
+        font-weight: 850;
+        margin-bottom: 0.35rem;
+    }
+
+    .about-copy {
+        color: var(--muted);
+        font-size: 0.98rem;
+        line-height: 1.65;
     }
 
     .hero-search-item {
@@ -525,6 +669,13 @@ st.markdown(
         color: var(--accent-dark) !important;
         text-decoration: underline;
         text-underline-offset: 0.35rem;
+    }
+
+    .leaflet-control-attribution {
+        font-size: 9px !important;
+        opacity: 0.58 !important;
+        transform: scale(0.78);
+        transform-origin: bottom right;
     }
 
     div[data-baseweb="select"] > div,
@@ -771,6 +922,7 @@ st.markdown(
 
     .restaurant-photo {
         align-items: flex-end;
+        background-color: #d8d0c0;
         background-position: center;
         background-size: cover;
         display: flex;
@@ -805,6 +957,13 @@ st.markdown(
         font-size: 0.9rem;
         font-weight: 700;
         justify-content: space-between;
+    }
+
+    .signal-row {
+        color: var(--accent-dark);
+        font-size: 0.9rem;
+        font-weight: 800;
+        margin-top: 0.55rem;
     }
 
     .country-chip {
@@ -853,8 +1012,24 @@ st.markdown(
     }
 
     @media (max-width: 760px) {
+        .site-header {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
         .brand-title {
             font-size: 1.25rem;
+        }
+
+        .top-nav-links {
+            gap: 1rem;
+            justify-content: flex-start;
+        }
+
+        .feedback-cta {
+            align-items: flex-start;
+            flex-direction: column;
         }
 
         .metric-grid {
@@ -894,48 +1069,70 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-header_columns = st.columns([0.06, 0.45, 0.49], gap="small")
-with header_columns[0]:
-    if st.button("◎", key="brand-home", help="Back to Explore", type="tertiary"):
-        switch_view("Explore")
-        st.rerun()
-
-with header_columns[1]:
-    st.markdown(
-        """
+active_view = st.session_state.active_view
+menu_state = "open" if initial_menu == "open" else "closed"
+top_nav_html = "".join(
+    (
+        f'<a class="{"active" if active_view == view_name else ""}" '
+        f'href="?view={view_name}">{VIEW_LABELS[view_name]}</a>'
+    )
+    for view_name in TOP_NAV_OPTIONS
+)
+st.markdown(
+    f"""
+    <header class="site-header">
         <div class="brand-row">
-            <div class="brand-title">Food Atlas Boston</div>
+            <a class="brand-mark" href="?view={active_view}&menu=open" title="Open menu">◎</a>
+            <div class="brand-title">{APP_NAME}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        <nav class="top-nav-links">{top_nav_html}</nav>
+    </header>
+    """,
+    unsafe_allow_html=True,
+)
 
-with header_columns[2]:
-    st.markdown('<div class="top-nav-wrap">', unsafe_allow_html=True)
-    selected_view = st.segmented_control(
-        "Section",
-        VIEW_OPTIONS,
-        default=st.session_state.active_view,
-        format_func=lambda view_name: VIEW_LABELS[view_name],
-        label_visibility="collapsed",
-        key="top-navigation",
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
-    if selected_view and selected_view != st.session_state.active_view:
-        switch_view(selected_view)
-        st.rerun()
+if menu_state == "open":
+    with st.sidebar:
+        st.markdown(f"## {APP_NAME}")
+        st.markdown("Jump to a section.")
+        for view_name in VIEW_OPTIONS:
+            class_name = "side-nav-link active" if active_view == view_name else "side-nav-link"
+            label = VIEW_LABELS[view_name]
+            st.markdown(
+                f'<a class="{class_name}" href="?view={view_name}&menu=open">{label}</a>',
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            f'<a class="side-nav-link subtle" href="?view={active_view}">Close menu</a>',
+            unsafe_allow_html=True,
+        )
 
 st.markdown(
     """
     <section class="hero">
         <div class="hero-kicker">Boston dining guide</div>
-        <div class="hero-title">Find the places that taste like home.</div>
+        <div class="hero-title">HomeTaste Boston</div>
         <div class="hero-subtitle">
-            Discover Boston restaurants by home cuisine, explore them on a map, and rate how authentic they feel.
+            Find the places that taste like home — to someone.
         </div>
         <div class="hero-country-strip">
-            <div class="hero-country-title">Start with where you are from</div>
-            We use your home country to find restaurants from that cuisine and collect authenticity ratings from the right people.
+            <div class="hero-country-title">A restaurant map shaped by lived experience</div>
+            Most restaurant apps show what’s popular. HomeTaste helps you discover restaurants through people who know the cuisine from lived experience.
+            Anyone can explore. People with lived experience can add HomeTaste checks.
+        </div>
+    </section>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <section class="about-panel">
+        <div class="about-eyebrow">Not another restaurant review site.</div>
+        <div class="about-copy">
+            HomeTaste is for everyone. Some people share the food knowledge they grew up with; others use that knowledge to explore with more curiosity and respect.
+            We don’t believe food has only one correct version. Diaspora food changes, adapts, and becomes local. HomeTaste is not here to police authenticity;
+            it simply adds a missing layer to restaurant discovery: lived-experience context.
         </div>
     </section>
     """,
@@ -1030,14 +1227,21 @@ def merge_curated_restaurants(restaurants):
     canonical_names = {
         "ittoku": "Izakaya Ittoku",
         "izakaya ittoku": "Izakaya Ittoku",
+        "izakayaittoku": "Izakaya Ittoku",
         "sugidama": "Sugidama Soba & Izakaya",
         "sugidama soba izakaya": "Sugidama Soba & Izakaya",
         "sugidama soba & izakaya": "Sugidama Soba & Izakaya",
+        "sugidamasobaizakaya": "Sugidama Soba & Izakaya",
         "café mami": "Cafe Mami",
         "cafe mami": "Cafe Mami",
+        "cafemami": "Cafe Mami",
         "yume ga arukara": "Yume Ga Arukara",
         "yume wo katare": "Yume Wo Katare",
     }
+
+    def restaurant_name_key(name):
+        return re.sub(r"[^a-z0-9]", "", name.strip().lower())
+
     curated_lookup = {
         restaurant["name"].strip().lower(): restaurant
         for restaurant in CURATED_MAJOR_RESTAURANTS
@@ -1046,8 +1250,14 @@ def merge_curated_restaurants(restaurants):
     for restaurant in restaurants:
         restaurant_copy = dict(restaurant)
         normalized_name = restaurant_copy["name"].strip().lower()
+        normalized_key = restaurant_name_key(restaurant_copy["name"])
         if normalized_name in canonical_names:
             restaurant_copy["name"] = canonical_names[normalized_name]
+        elif normalized_key in canonical_names:
+            restaurant_copy["name"] = canonical_names[normalized_key]
+        if restaurant_copy["name"].strip().lower() in canonical_names:
+            restaurant_copy["name"] = canonical_names[restaurant_copy["name"].strip().lower()]
+        if restaurant_copy["name"].strip().lower() != normalized_name:
             curated_restaurant = curated_lookup.get(restaurant_copy["name"].strip().lower())
             if curated_restaurant:
                 restaurant_copy.update(curated_restaurant)
@@ -1056,14 +1266,14 @@ def merge_curated_restaurants(restaurants):
     deduped_restaurants = []
     existing_names = set()
     for restaurant in merged_restaurants:
-        normalized_name = restaurant["name"].strip().lower()
+        normalized_name = restaurant_name_key(restaurant["name"])
         if normalized_name not in existing_names:
             deduped_restaurants.append(restaurant)
             existing_names.add(normalized_name)
     merged_restaurants = deduped_restaurants
 
     for restaurant in CURATED_MAJOR_RESTAURANTS:
-        normalized_name = restaurant["name"].strip().lower()
+        normalized_name = restaurant_name_key(restaurant["name"])
         if normalized_name not in existing_names:
             merged_restaurants.append(dict(restaurant))
             existing_names.add(normalized_name)
@@ -1078,11 +1288,69 @@ def get_query_param(name):
     return value
 
 
-def star_rating_html(ratings):
-    if not ratings:
+def cuisine_label(country):
+    labels = {
+        "China / Taiwan / Hong Kong": "Chinese / Taiwanese / Hong Kong",
+        "United States": "American",
+        "United Kingdom": "British",
+    }
+    if country in labels:
+        return labels[country]
+    if country.endswith("y"):
+        return f"{country[:-1]}ian"
+    if country.endswith("a"):
+        return f"{country}n"
+    if country == "Japan":
+        return "Japanese"
+    if country == "Korea":
+        return "Korean"
+    if country == "Mexico":
+        return "Mexican"
+    if country == "Turkey":
+        return "Turkish"
+    if country == "India":
+        return "Indian"
+    if country == "Italy":
+        return "Italian"
+    if country == "France":
+        return "French"
+    if country == "Thailand":
+        return "Thai"
+    if country == "Vietnam":
+        return "Vietnamese"
+    return country
+
+
+def relationship_weight(relationship):
+    return RELATIONSHIP_WEIGHTS.get(relationship, 1.0 if relationship == "Legacy HomeTaste check" else 0.1)
+
+
+def is_lived_experience_check(review):
+    return relationship_weight(review.get("relationship_to_cuisine", "Legacy HomeTaste check")) >= 0.5
+
+
+def weighted_hometaste_score(reviews):
+    weighted_reviews = [
+        review for review in reviews
+        if is_lived_experience_check(review)
+    ]
+    if not weighted_reviews:
+        return None
+    total_weight = sum(relationship_weight(review.get("relationship_to_cuisine")) for review in weighted_reviews)
+    if not total_weight:
+        return None
+    weighted_sum = sum(
+        float(review.get("rating", 0)) * relationship_weight(review.get("relationship_to_cuisine"))
+        for review in weighted_reviews
+    )
+    return round(weighted_sum / total_weight, 2)
+
+
+def hometaste_star_html(score):
+    if score is None:
         average = 0
     else:
-        average = sum(ratings) / len(ratings)
+        average = score
 
     stars = []
     for index in range(1, 6):
@@ -1099,37 +1367,76 @@ def star_rating_html(ratings):
     return "".join(stars)
 
 
-def star_rating_text(ratings):
-    if not ratings:
+def hometaste_star_text(score):
+    if score is None:
         return "☆☆☆☆☆"
 
-    average = sum(ratings) / len(ratings)
     stars = []
     for index in range(1, 6):
-        if average >= index:
+        if score >= index:
             stars.append("★")
-        elif average >= index - 0.5:
+        elif score >= index - 0.5:
             stars.append("⯨")
         else:
             stars.append("☆")
     return "".join(stars)
 
 
-def popup_html(restaurant, ratings):
+def restaurant_checks(restaurant_name):
+    return reviews_by_restaurant.get(restaurant_name, [])
+
+
+def lived_experience_checks(checks):
+    return [check for check in checks if is_lived_experience_check(check)]
+
+
+def hometaste_summary(checks):
+    lived_checks = lived_experience_checks(checks)
+    score = weighted_hometaste_score(checks)
+    general_count = len(checks) - len(lived_checks)
+    return score, len(lived_checks), general_count
+
+
+def top_signals_from_checks(checks):
+    signal_labels = [
+        ("taste_score", "taste"),
+        ("menu_score", "menu"),
+        ("ingredient_score", "ingredients"),
+        ("atmosphere_score", "atmosphere"),
+        ("people_language_score", "people / language"),
+        ("regional_specificity_score", "regional style"),
+        ("reminds_home_score", "reminds me of home"),
+    ]
+    scored = []
+    for field_name, label in signal_labels:
+        values = [
+            float(check.get(field_name, 0) or 0)
+            for check in checks
+            if is_lived_experience_check(check) and check.get(field_name)
+        ]
+        if values:
+            scored.append((sum(values) / len(values), label))
+    scored.sort(reverse=True)
+    return [label for _, label in scored[:3]]
+
+
+def popup_html(restaurant, checks):
     restaurant_name = html.escape(restaurant["name"])
-    star_text = star_rating_html(ratings)
-    review_count = len(ratings)
-    if ratings:
-        average_label = f"{sum(ratings) / len(ratings):.1f}"
+    score, lived_count, general_count = hometaste_summary(checks)
+    star_text = hometaste_star_html(score)
+    cuisine_name = cuisine_label(restaurant["country"])
+    if score is not None:
+        score_label = f"{cuisine_name} HomeTaste Score {score:.1f}"
     else:
-        average_label = "New"
+        score_label = "No HomeTaste score yet"
 
     return f"""
     <div style="font-family: Arial, sans-serif; min-width: 180px;">
         <div style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">{restaurant_name}</div>
         <div style="font-size: 18px; letter-spacing: 1px;">{star_text}</div>
-        <div style="color:#64748b; font-size:12px; margin-top:6px;">{average_label} · {review_count} reviews</div>
-        <div style="color:#075766; font-size:12px; font-weight:700; margin-top:6px;">Open Reviews for notes, or click the marker to rate.</div>
+        <div style="color:#64748b; font-size:12px; margin-top:6px;">{score_label}</div>
+        <div style="color:#64748b; font-size:12px; margin-top:4px;">{lived_count} lived-experience checks · {general_count} general notes</div>
+        <div style="color:#075766; font-size:12px; font-weight:700; margin-top:6px;">Click the marker to add a HomeTaste check.</div>
     </div>
     """
 
@@ -1218,7 +1525,7 @@ def review_form_diagnostic(action_url, field_map):
 def send_review_to_google_form(review):
     action_url, field_map = configured_review_form()
     if not action_url or not all(field_map.values()):
-        return False, "Review storage is not configured in Streamlit Secrets."
+        return False, "HomeTaste check storage is not configured in Streamlit Secrets."
 
     diagnostic = review_form_diagnostic(action_url, field_map)
     if diagnostic != "configured":
@@ -1229,7 +1536,7 @@ def send_review_to_google_form(review):
         field_map["country"]: review["country"],
         field_map["restaurant"]: review["restaurant"],
         field_map["rating"]: review["rating"],
-        field_map["note"]: review["note"],
+        field_map["note"]: review.get("note", ""),
     }
     request = Request(
         action_url,
@@ -1284,6 +1591,29 @@ def first_value(row, candidates):
     return ""
 
 
+def value_from_structured_note(note, prefix):
+    for line in str(note or "").splitlines():
+        if line.startswith(prefix):
+            return line.replace(prefix, "", 1).strip()
+    return ""
+
+
+def dimension_from_structured_note(note, label):
+    marker = f"{label} "
+    for part in str(note or "").replace("\n", ", ").split(","):
+        cleaned = part.strip()
+        if cleaned.startswith(marker):
+            try:
+                return str(float(cleaned.replace(marker, "", 1).strip()))
+            except ValueError:
+                return ""
+    return ""
+
+
+def public_note_text(note):
+    return str(note or "").split("\n\nRelationship to cuisine:", 1)[0].strip()
+
+
 def parse_review_csv(csv_text):
     reviews = []
     for row in csv.DictReader(csv_text.splitlines()):
@@ -1297,13 +1627,33 @@ def parse_review_csv(csv_text):
         except ValueError:
             continue
 
+        note = first_value(row, ["note", "notes", "comment", "explanation", "備考", "コメント"])
+        relationship = (
+            first_value(row, ["relationship_to_cuisine", "relationship", "relationship to cuisine"])
+            or value_from_structured_note(note, "Relationship to cuisine:")
+            or "Legacy HomeTaste check"
+        )
+        bring_friend = (
+            first_value(row, ["bring_friend_from_home", "bring friend", "would you bring someone from home here"])
+            or value_from_structured_note(note, "Would bring someone from home:")
+        )
+
         reviews.append(
             {
                 "timestamp": first_value(row, ["timestamp", "time", "日時", "タイムスタンプ"]),
                 "country": first_value(row, ["country", "home country", "国", "出身国"]),
                 "restaurant": restaurant,
                 "rating": rating_value,
-                "note": first_value(row, ["note", "notes", "comment", "備考", "コメント"]),
+                "note": note,
+                "relationship_to_cuisine": relationship,
+                "bring_friend_from_home": bring_friend,
+                "taste_score": first_value(row, ["taste_score", "taste"]) or dimension_from_structured_note(note, "Taste"),
+                "menu_score": first_value(row, ["menu_score", "menu"]) or dimension_from_structured_note(note, "Menu"),
+                "ingredient_score": first_value(row, ["ingredient_score", "ingredients"]) or dimension_from_structured_note(note, "Ingredients"),
+                "atmosphere_score": first_value(row, ["atmosphere_score", "atmosphere"]) or dimension_from_structured_note(note, "Atmosphere"),
+                "people_language_score": first_value(row, ["people_language_score", "people / language"]) or dimension_from_structured_note(note, "People / language"),
+                "regional_specificity_score": first_value(row, ["regional_specificity_score", "regional specificity"]) or dimension_from_structured_note(note, "Regional specificity"),
+                "reminds_home_score": first_value(row, ["reminds_home_score", "reminds me of home"]) or dimension_from_structured_note(note, "Reminds me of home"),
             }
         )
     return reviews
@@ -1314,7 +1664,24 @@ def save_review(review):
     if sent_to_google_form:
         return True, ""
 
-    fieldnames = ["timestamp", "country", "restaurant", "rating", "note"]
+    fieldnames = [
+        "timestamp",
+        "country",
+        "restaurant",
+        "rating",
+        "note",
+        "relationship_to_cuisine",
+        "weight",
+        "is_lived_experience_check",
+        "bring_friend_from_home",
+        "taste_score",
+        "menu_score",
+        "ingredient_score",
+        "atmosphere_score",
+        "people_language_score",
+        "regional_specificity_score",
+        "reminds_home_score",
+    ]
     file_exists = os.path.exists(REVIEWS_FILE)
     with open(REVIEWS_FILE, "a", newline="", encoding="utf-8") as reviews_file:
         writer = csv.DictWriter(reviews_file, fieldnames=fieldnames)
@@ -1339,6 +1706,17 @@ def load_reviews():
                 "restaurant": row.get("restaurant", ""),
                 "rating": float(row.get("rating", 0) or 0),
                 "note": row.get("note", ""),
+                "relationship_to_cuisine": row.get("relationship_to_cuisine", "Legacy HomeTaste check"),
+                "weight": float(row.get("weight", 1.0) or 1.0),
+                "is_lived_experience_check": row.get("is_lived_experience_check", "True") == "True",
+                "bring_friend_from_home": row.get("bring_friend_from_home", ""),
+                "taste_score": row.get("taste_score", ""),
+                "menu_score": row.get("menu_score", ""),
+                "ingredient_score": row.get("ingredient_score", ""),
+                "atmosphere_score": row.get("atmosphere_score", ""),
+                "people_language_score": row.get("people_language_score", ""),
+                "regional_specificity_score": row.get("regional_specificity_score", ""),
+                "reminds_home_score": row.get("reminds_home_score", ""),
             }
             for row in csv.DictReader(reviews_file)
             if row.get("restaurant") and row.get("rating")
@@ -1409,13 +1787,13 @@ with st.container(border=True):
     st.markdown(
         """
         <div class="country-entry-panel">
-            <div class="country-button-title">Where are you from?</div>
-            <div class="country-entry-copy">Start with your home country. We will show restaurants from that cuisine and collect authenticity ratings from people who know it best.</div>
+            <div class="country-button-title">Which cuisine can you evaluate from lived experience?</div>
+            <div class="country-entry-copy">Choose a food culture you know from home, family, or long-term lived experience. We’ll show restaurants where your HomeTaste check can add useful context.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    country_query = st.text_input("Home country", placeholder="Try Japan, Italy, Mexico...")
+    country_query = st.text_input("Cuisine you know", placeholder="Try Japanese, Korean, Mexican, Turkish...")
     country_query_normalized = country_query.strip().lower()
     inferred_countries = [
         country
@@ -1431,19 +1809,34 @@ with st.container(border=True):
         else 0
     )
     inferred_country = st.selectbox(
-        "Home country match",
+        "Selected cuisine",
         inferred_countries,
         index=inferred_default_index,
-        format_func=lambda country: f"{COUNTRY_FLAGS.get(country, '')} {country}",
+        format_func=lambda country: f"{COUNTRY_FLAGS.get(country, '')} {cuisine_label(country)}",
     )
     st.session_state.selected_country = inferred_country
+
+origin_country = st.session_state.get("selected_country", "Japan")
+origin_cuisine = cuisine_label(origin_country)
+origin_flag = COUNTRY_FLAGS.get(origin_country, "")
+country_restaurants = [
+    restaurant
+    for restaurant in all_restaurants
+    if restaurant["country"] == origin_country
+]
+filtered_reviews = [
+    review
+    for review in st.session_state.reviews
+    if review["country"] == origin_country
+]
+current_lived_reviewer_count = sum(1 for review in filtered_reviews if is_lived_experience_check(review))
 
 st.markdown(
     f"""
     <div class="metric-grid">
         <div class="metric-card">
-            <div class="metric-label">Restaurants</div>
-            <div class="metric-value">{len(all_restaurants)}</div>
+            <div class="metric-label">{html.escape(origin_cuisine)} restaurants</div>
+            <div class="metric-value">{len(country_restaurants)}</div>
             <div class="metric-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M3 21h18"/>
@@ -1453,7 +1846,7 @@ st.markdown(
             </div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Countries</div>
+            <div class="metric-label">Cuisines</div>
             <div class="metric-value">{len(COUNTRY_CUISINES)}</div>
             <div class="metric-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -1466,8 +1859,8 @@ st.markdown(
             </div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Ratings</div>
-            <div class="metric-value">{total_reviews}</div>
+            <div class="metric-label">HomeTaste checks</div>
+            <div class="metric-value">{current_lived_reviewer_count}</div>
             <div class="metric-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 3l2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.8 1-6.1-4.4-4.3 6.1-.9L12 3z"/>
@@ -1478,15 +1871,17 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-origin_country = st.session_state.get("selected_country", "Japan")
-country_restaurants = [
-    restaurant
-    for restaurant in all_restaurants
-    if restaurant["country"] == origin_country
-]
-origin_flag = COUNTRY_FLAGS.get(origin_country, "")
 st.markdown(
-    f'<div class="country-chip"><span class="flag">{origin_flag}</span><span>Showing restaurants for {html.escape(origin_country)} cuisine authenticity</span></div>',
+    f'<div class="country-chip"><span class="flag">{origin_flag}</span><span>Showing {html.escape(origin_cuisine)} restaurants with HomeTaste checks from people who know the cuisine</span></div>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """
+    <div class="feedback-cta">
+        <div><strong>Help keep HomeTaste accurate.</strong> Missing restaurant, duplicate listing, or wrong cuisine?</div>
+        <a href="?view=Report">Report issue</a>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -1501,16 +1896,16 @@ selected_from_map_restaurant = next(
 )
 
 
-def render_rate_view():
+def render_check_view():
     st.markdown(f'<div id="{RATING_FORM_ANCHOR}"></div>', unsafe_allow_html=True)
-    st.subheader("Rate Authenticity")
+    st.subheader("Add a HomeTaste Check")
     st.markdown(
-        f'<p class="section-note"><span class="flag">{origin_flag}</span> {len(country_restaurants)} {origin_country} cuisine restaurants near Boston.</p>',
+        f'<p class="section-note"><span class="flag">{origin_flag}</span> Does this place feel familiar to the {html.escape(origin_cuisine)} cuisine you know? Share what felt close to home — or what didn’t.</p>',
         unsafe_allow_html=True,
     )
     action_url, field_map = configured_review_form()
     if not action_url or not all(field_map.values()):
-        st.warning("Review storage is not fully configured. Ratings will not persist after app restart until Streamlit Secrets are completed.")
+        st.warning("HomeTaste check storage is not fully configured. Checks will not persist after app restart until Streamlit Secrets are completed.")
     elif review_form_diagnostic(action_url, field_map) != "configured":
         st.warning(review_form_diagnostic(action_url, field_map))
 
@@ -1520,7 +1915,7 @@ def render_rate_view():
             f"""
             <div class="selected-panel">
                 <div class="selected-panel-title">{origin_flag} {html.escape(selected_restaurant["name"])}</div>
-                <div class="selected-panel-copy">Opened from the restaurant card or map. Add your authenticity rating below.</div>
+                <div class="selected-panel-copy">Opened from the restaurant card or map. Add your HomeTaste check below.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1539,7 +1934,7 @@ def render_rate_view():
     ]
 
     if selected_from_map and selected_from_map_restaurant is None:
-        st.info("Select the matching home country to rate the restaurant you opened from the map.")
+        st.info("Select the matching cuisine to check the restaurant you opened from the map.")
 
     if matching_restaurants:
         selected_name = st.selectbox(
@@ -1554,73 +1949,114 @@ def render_rate_view():
         st.warning("No matching restaurants found.")
 
     if selected_restaurant:
-        user_rating = st.slider("Your rating", 1.0, 5.0, 4.0, 0.5)
-        note = st.text_area("Note optional")
+        user_rating = st.slider("Overall HomeTaste Score", 1.0, 5.0, 4.0, 0.5)
+        st.markdown('<p class="section-note">Optional dimension scores help future visitors understand what felt familiar.</p>', unsafe_allow_html=True)
+        dimension_values = {}
+        dimension_columns = st.columns(2)
+        for index, (field_name, label) in enumerate(DIMENSION_FIELDS):
+            with dimension_columns[index % 2]:
+                dimension_values[field_name] = st.slider(label, 1.0, 5.0, 4.0, 0.5, key=f"{field_name}_slider")
 
-        if st.button("Submit Rating", use_container_width=True):
+        bring_friend_from_home = st.radio(
+            "Would you bring someone from home here?",
+            ["Yes", "Maybe", "No"],
+            horizontal=True,
+        )
+        relationship_to_cuisine = st.selectbox(
+            "What is your relationship to this cuisine?",
+            list(RELATIONSHIP_WEIGHTS.keys()),
+        )
+        explanation = st.text_area(
+            "What made it feel familiar or not?",
+            placeholder='Example: “The small plates and casual izakaya atmosphere reminded me of places I’d go after work in Japan, though the portions felt more American.”',
+        )
+
+        if st.button("Submit HomeTaste Check", use_container_width=True):
+            cleaned_explanation = explanation.strip()
+            vague_notes = {"good", "great", "authentic", "nice", "tasty", "bad", "ok", "okay"}
+            if not cleaned_explanation:
+                st.error("Please explain what made it feel familiar or not.")
+                return
+            if len(cleaned_explanation.split()) < 5 or cleaned_explanation.lower() in vague_notes:
+                st.error("Please add one concrete detail: taste, menu, ingredient, atmosphere, language, clientele, or regional style.")
+                return
+
+            weight = relationship_weight(relationship_to_cuisine)
+            is_lived_check = relationship_to_cuisine in LIVED_EXPERIENCE_RELATIONSHIPS
+            structured_note = (
+                f"{cleaned_explanation}\n\n"
+                f"Relationship to cuisine: {relationship_to_cuisine}\n"
+                f"Would bring someone from home: {bring_friend_from_home}\n"
+                f"Dimension scores: "
+                + ", ".join(
+                    f"{label} {dimension_values[field_name]:.1f}"
+                    for field_name, label in DIMENSION_FIELDS
+                )
+            )
             review_record = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "country": origin_country,
                 "restaurant": selected_restaurant["name"],
                 "rating": user_rating,
-                "note": note.strip(),
+                "note": structured_note,
+                "relationship_to_cuisine": relationship_to_cuisine,
+                "weight": weight,
+                "is_lived_experience_check": is_lived_check,
+                "bring_friend_from_home": bring_friend_from_home,
+                **dimension_values,
             }
             st.session_state.reviews.append(review_record)
             sent_to_google_form, error_message = save_review(review_record)
             if sent_to_google_form:
-                st.success(f"Thanks for rating {selected_restaurant['name']}.")
+                st.success(f"Thanks. Your HomeTaste check for {selected_restaurant['name']} has been added.")
             else:
-                st.error("The review was not saved to Google Forms yet.")
+                st.error("The HomeTaste check was not saved to Google Forms yet.")
                 st.caption(error_message)
                 st.warning("Check Streamlit Secrets and the Google Form field IDs. A local backup was saved only for this runtime.")
     else:
         st.markdown(
             """
             <div class="empty-panel">
-                <div class="empty-panel-title">Choose a restaurant to rate.</div>
-                <div class="empty-panel-copy">Search here, or press Rate from any restaurant card.</div>
+                <div class="empty-panel-title">Choose a restaurant to check.</div>
+                <div class="empty-panel-copy">Search here, or press Add a HomeTaste check from any restaurant card.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-filtered_reviews = [
-    review
-    for review in st.session_state.reviews
-    if review["country"] == origin_country
-]
-
-average_by_restaurant = {}
-for review in filtered_reviews:
-    average_by_restaurant.setdefault(review["restaurant"], []).append(review["rating"])
-
 reviews_by_restaurant = {}
 for review in filtered_reviews:
     reviews_by_restaurant.setdefault(review["restaurant"], []).append(review)
 
+average_by_restaurant = {
+    restaurant_name: [review["rating"] for review in checks]
+    for restaurant_name, checks in reviews_by_restaurant.items()
+}
+
 average_rows = [
     {
         "Restaurant": restaurant,
-        "Average Rating": round(sum(ratings) / len(ratings), 2),
-        "Reviews": len(ratings),
+        "HomeTaste Score": weighted_hometaste_score(reviews_by_restaurant.get(restaurant, [])),
+        "Lived-experience checks": len(lived_experience_checks(reviews_by_restaurant.get(restaurant, []))),
     }
-    for restaurant, ratings in sorted(
-        average_by_restaurant.items(),
+    for restaurant, checks in sorted(
+        reviews_by_restaurant.items(),
         key=lambda item: (
-            -(sum(item[1]) / len(item[1])),
-            -len(item[1]),
+            -(weighted_hometaste_score(item[1]) or 0),
+            -len(lived_experience_checks(item[1])),
             item[0],
         ),
     )
 ]
 
 def restaurant_summary_row(restaurant):
-    ratings = average_by_restaurant.get(restaurant["name"], [])
-    average_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
+    checks = restaurant_checks(restaurant["name"])
+    score, lived_count, general_count = hometaste_summary(checks)
     return {
         "Restaurant": f"{origin_flag} {restaurant['name']}",
-        "Average Rating": average_rating if average_rating is not None else "Not rated",
-        "Reviews": len(ratings),
+        "HomeTaste Score": score if score is not None else "No score yet",
+        "Lived-experience checks": lived_count,
+        "General notes": general_count,
     }
 
 
@@ -1639,6 +2075,17 @@ def restaurant_image_url(restaurant_name):
     return RESTAURANT_IMAGE_URLS[image_index]
 
 
+def restaurant_subtype(restaurant):
+    cuisine_parts = [
+        part.strip().replace("_", " ")
+        for part in restaurant.get("cuisine", "").split(",")
+        if part.strip()
+    ]
+    if cuisine_parts:
+        return cuisine_parts[0].title()
+    return cuisine_label(restaurant["country"])
+
+
 def render_restaurant_cards(restaurants, start_index=0, key_prefix="restaurant", columns_per_row=3):
     if not restaurants:
         return
@@ -1647,56 +2094,111 @@ def render_restaurant_cards(restaurants, start_index=0, key_prefix="restaurant",
         columns = st.columns(columns_per_row)
         for offset, restaurant in enumerate(restaurants[row_start:row_start + columns_per_row]):
             index = start_index + row_start + offset
-            ratings = average_by_restaurant.get(restaurant["name"], [])
-            average_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
-            rating_label = f"{average_rating:.2f}" if average_rating is not None else "New"
-            review_label = f"{len(ratings)} review" if len(ratings) == 1 else f"{len(ratings)} reviews"
+            checks = restaurant_checks(restaurant["name"])
+            score, lived_count, general_count = hometaste_summary(checks)
+            score_label = f"HomeTaste Score {score:.1f}" if score is not None else "No HomeTaste checks yet"
+            check_label = f"{lived_count} lived-experience check" if lived_count == 1 else f"{lived_count} lived-experience checks"
+            signals = top_signals_from_checks(checks)
+            signal_label = " · ".join(signals) if signals else "Add cultural context for future visitors"
+            image_url = html.escape(restaurant.get("image_url") or restaurant_image_url(restaurant["name"]))
 
             with columns[offset]:
                 with st.container(border=True):
-                    st.image(RESTAURANT_IMAGE_URLS[index % len(RESTAURANT_IMAGE_URLS)], use_container_width=True)
                     st.markdown(
-                        f'<div class="card-title">{origin_flag} {html.escape(restaurant["name"])}</div>',
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown(
-                        f'<div class="card-meta">{star_rating_text(ratings)} · {rating_label} · {review_label}</div>',
+                        f"""
+                        <div class="restaurant-photo" style="background-image: url('{image_url}')">
+                            <div class="restaurant-photo-title">{origin_flag} {html.escape(restaurant["name"])}</div>
+                        </div>
+                        <div class="restaurant-card-body">
+                            <div class="card-meta">{html.escape(cuisine_label(restaurant["country"]))} · {html.escape(restaurant_subtype(restaurant))}</div>
+                            <div class="card-title">{html.escape(score_label)}</div>
+                            <div class="card-meta">{html.escape(check_label)}</div>
+                            <div class="signal-row">{html.escape(signal_label)}</div>
+                        </div>
+                        """,
                         unsafe_allow_html=True,
                     )
                     safe_name = restaurant["name"].strip().lower().replace(" ", "-")
-                    if st.button("Rate", key=f"{key_prefix}-rate-card-{index}-{safe_name}", use_container_width=True):
+                    if st.button("Add a HomeTaste check", key=f"{key_prefix}-rate-card-{index}-{safe_name}", use_container_width=True):
                         st.session_state.map_selected_restaurant = restaurant["name"]
-                        st.session_state.active_view = "Rate"
+                        st.session_state.active_view = "Check"
                         st.rerun()
+
+
+def relationship_breakdown(checks):
+    breakdown = {}
+    for check in checks:
+        relationship = check.get("relationship_to_cuisine", "Legacy HomeTaste check")
+        breakdown[relationship] = breakdown.get(relationship, 0) + 1
+    return breakdown
+
+
+def render_restaurant_detail(restaurant):
+    checks = restaurant_checks(restaurant["name"])
+    score, lived_count, general_count = hometaste_summary(checks)
+    notes = [
+        public_note_text(check.get("note", ""))
+        for check in checks
+        if public_note_text(check.get("note", ""))
+    ]
+    signals = top_signals_from_checks(checks)
+    score_label = f"HomeTaste Score {score:.1f}" if score is not None else "No HomeTaste score yet"
+    with st.container(border=True):
+        st.markdown(
+            f"""
+            <div class="selected-panel">
+                <div class="selected-panel-title">{origin_flag} {html.escape(restaurant["name"])}</div>
+                <div class="selected-panel-copy">{html.escape(cuisine_label(restaurant["country"]))} · {html.escape(restaurant_subtype(restaurant))}</div>
+                <div class="selected-panel-copy">{html.escape(score_label)} · {lived_count} lived-experience checks · {general_count} general diner notes</div>
+                <div class="selected-panel-copy">HomeTaste Score reflects lived-experience checks, not general popularity.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if checks:
+            breakdown = relationship_breakdown(checks)
+            st.markdown("**Who checked it**")
+            st.markdown(" · ".join(f"{count} {html.escape(label)}" for label, count in breakdown.items()))
+        if signals:
+            st.markdown("**Why it feels familiar**")
+            st.markdown("Lived-experience checks suggest: " + " · ".join(signals))
+        if notes:
+            st.markdown("**Recent voices**")
+            for note in notes[:3]:
+                st.markdown(f'<div class="ranking-card-note">"{html.escape(note)}"</div>', unsafe_allow_html=True)
+        if st.button("Add a HomeTaste check for this place", key=f"detail-check-{restaurant['name']}", use_container_width=True):
+            st.session_state.map_selected_restaurant = restaurant["name"]
+            st.session_state.active_view = "Check"
+            st.rerun()
 
 
 def ranked_restaurant_entries(restaurants):
     ranked_entries = []
-    previous_average = None
+    previous_score = None
     previous_rank = 0
     for position, restaurant in enumerate(restaurants, start=1):
-        ratings = average_by_restaurant.get(restaurant["name"], [])
-        if not ratings:
+        checks = restaurant_checks(restaurant["name"])
+        score = weighted_hometaste_score(checks)
+        if score is None:
             continue
 
-        average_rating = round(sum(ratings) / len(ratings), 2)
-        if previous_average is not None and average_rating == previous_average:
+        if previous_score is not None and score == previous_score:
             rank = previous_rank
         else:
             rank = position
-            previous_average = average_rating
+            previous_score = score
             previous_rank = rank
 
         ranked_entries.append(
             {
                 "rank": rank,
                 "restaurant": restaurant,
-                "ratings": ratings,
-                "average_rating": average_rating,
+                "checks": checks,
+                "hometaste_score": score,
                 "notes": [
-                    review.get("note", "").strip()
-                    for review in reviews_by_restaurant.get(restaurant["name"], [])
-                    if review.get("note", "").strip()
+                    public_note_text(review.get("note", ""))
+                    for review in checks
+                    if public_note_text(review.get("note", ""))
                 ],
             }
         )
@@ -1710,21 +2212,25 @@ def render_ranking_cards(entries):
 
     for entry in entries:
         restaurant = entry["restaurant"]
-        ratings = entry["ratings"]
+        checks = entry["checks"]
         notes = entry["notes"]
+        lived_count = len(lived_experience_checks(checks))
+        signals = top_signals_from_checks(checks)
+        signal_text = " · ".join(signals) if signals else "Lived-experience voices are still forming."
         with st.container(border=True):
             st.markdown(
                 f"""
                 <div class="ranking-card" style="--ranking-image: url('{restaurant_image_url(restaurant["name"])}')" title="{html.escape(notes[-1] if notes else 'No notes yet.')}">
-                    <div class="ranking-badge">#{entry["rank"]} most authentic</div>
+                    <div class="ranking-badge">#{entry["rank"]} HomeTaste pick</div>
                     <div class="ranking-card-title">{origin_flag} {html.escape(restaurant["name"])}</div>
-                    <div class="ranking-card-meta">{star_rating_html(ratings)} · {entry["average_rating"]:.1f} average · {len(ratings)} reviews</div>
+                    <div class="ranking-card-meta">{hometaste_star_html(entry["hometaste_score"])} · HomeTaste Score {entry["hometaste_score"]:.1f} · {lived_count} lived-experience checks</div>
+                    <div class="signal-row">{html.escape(signal_text)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
             if notes:
-                with st.expander("See reviews"):
+                with st.expander("See voices"):
                     for note in notes:
                         st.markdown(
                             f'<div class="ranking-card-note">"{html.escape(note)}"</div>',
@@ -1732,7 +2238,7 @@ def render_ranking_cards(entries):
                         )
             else:
                 st.markdown(
-                    '<div class="ranking-card-empty-note">No written review yet.</div>',
+                    '<div class="ranking-card-empty-note">No written voice yet.</div>',
                     unsafe_allow_html=True,
                 )
 
@@ -1740,9 +2246,9 @@ def render_ranking_cards(entries):
 sorted_country_restaurants = sorted(
     country_restaurants,
     key=lambda restaurant: (
-        -(sum(average_by_restaurant.get(restaurant["name"], [])) / len(average_by_restaurant.get(restaurant["name"], []))
-          if average_by_restaurant.get(restaurant["name"], []) else 0),
-        -len(average_by_restaurant.get(restaurant["name"], [])),
+        -(weighted_hometaste_score(restaurant_checks(restaurant["name"])) or 0),
+        -len(lived_experience_checks(restaurant_checks(restaurant["name"]))),
+        -len([review for review in restaurant_checks(restaurant["name"]) if review.get("note", "").strip()]),
         CURATED_PRIORITY.get(restaurant["name"].strip().lower(), 9999),
         restaurant["name"],
     ),
@@ -1761,8 +2267,28 @@ def render_explore_view():
         st.markdown('<div id="map-section"></div>', unsafe_allow_html=True)
         st.subheader("Map")
         restaurant_map = folium.Map(location=BOSTON_CENTER, zoom_start=12, tiles="CartoDB positron")
+        restaurant_map.get_root().html.add_child(
+            folium.Element(
+                """
+                <style>
+                .leaflet-control-attribution {
+                    font-size: 9px !important;
+                    opacity: 0.58 !important;
+                    transform: scale(0.78);
+                    transform-origin: bottom right;
+                }
+                </style>
+                """
+            )
+        )
         for restaurant in country_restaurants:
-            ratings = average_by_restaurant.get(restaurant["name"], [])
+            checks = restaurant_checks(restaurant["name"])
+            score, lived_count, _ = hometaste_summary(checks)
+            tooltip_label = (
+                f"{html.escape(restaurant['name'])} · HomeTaste Score {score:.1f} · {lived_count} checks"
+                if score is not None
+                else f"{html.escape(restaurant['name'])} · No HomeTaste score yet · {lived_count} checks"
+            )
             folium.CircleMarker(
                 location=[restaurant["latitude"], restaurant["longitude"]],
                 radius=7,
@@ -1770,12 +2296,8 @@ def render_explore_view():
                 fill=True,
                 fill_color="#0f7f8c",
                 fill_opacity=0.9,
-                popup=folium.Popup(popup_html(restaurant, ratings), max_width=260),
-                tooltip=(
-                    f"{html.escape(restaurant['name'])} · "
-                    f"{star_rating_text(ratings)} · "
-                    f"{len(ratings)} reviews · Open Reviews"
-                ),
+                popup=folium.Popup(popup_html(restaurant, checks), max_width=260),
+                tooltip=tooltip_label,
             ).add_to(restaurant_map)
 
         map_data = st_folium(restaurant_map, width=640, height=520)
@@ -1785,28 +2307,34 @@ def render_explore_view():
         )
         if clicked_restaurant and st.session_state.get("map_selected_restaurant") != clicked_restaurant["name"]:
             st.session_state.map_selected_restaurant = clicked_restaurant["name"]
-            st.session_state.active_view = "Rate"
+            st.session_state.active_view = "Check"
             st.rerun()
 
     with list_area:
         selected_map_name = st.session_state.get("map_selected_restaurant")
         if selected_map_name:
-            st.success(f"{selected_map_name} is selected. The rating form is ready.")
+            st.success(f"{selected_map_name} is selected. The HomeTaste check form is ready.")
+            selected_detail = next(
+                (restaurant for restaurant in country_restaurants if restaurant["name"] == selected_map_name),
+                None,
+            )
+            if selected_detail:
+                render_restaurant_detail(selected_detail)
 
         top_rated_rows = [
             restaurant
             for restaurant in sorted_country_restaurants
-            if len(average_by_restaurant.get(restaurant["name"], [])) > 0
+            if weighted_hometaste_score(restaurant_checks(restaurant["name"])) is not None
         ][:5]
-        st.subheader("Popular with Locals")
+        st.subheader("Recommended by people who know this cuisine")
         if top_rated_rows:
             render_restaurant_cards(top_rated_rows[:3], key_prefix="popular", columns_per_row=1)
         else:
             st.markdown(
                 """
                 <div class="empty-panel">
-                    <div class="empty-panel-title">No local ratings yet.</div>
-                    <div class="empty-panel-copy">A few high-priority places are shown below so the first reviews can shape the ranking.</div>
+                    <div class="empty-panel-title">No HomeTaste checks yet.</div>
+                    <div class="empty-panel-copy">A few high-priority places are shown below so people with lived experience can add the first cultural context.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1815,9 +2343,9 @@ def render_explore_view():
 
 
     st.markdown('<div id="restaurants-section"></div>', unsafe_allow_html=True)
-    st.subheader(f"{origin_country} Restaurants")
+    st.subheader(f"{origin_cuisine} Restaurants")
     st.markdown(
-        f'<p class="section-note">{len(country_restaurants)} places found. Top rated restaurants appear first, then places with more reviews.</p>',
+        f'<p class="section-note">{len(country_restaurants)} places found. Restaurants with stronger lived-experience HomeTaste checks appear first. Places with no checks are shown lower until more people add context.</p>',
         unsafe_allow_html=True,
     )
     render_restaurant_cards(sorted_country_restaurants[:12], key_prefix="list")
@@ -1826,20 +2354,20 @@ def render_explore_view():
             render_restaurant_cards(sorted_country_restaurants[12:48], start_index=12, key_prefix="more")
 
 
-def render_reviews_view():
+def render_voices_view():
     st.markdown('<div id="reviews-section"></div>', unsafe_allow_html=True)
-    st.subheader("Reviews")
+    st.subheader("Voices")
     st.markdown(
-        f'<p class="section-note">See which {origin_flag} {html.escape(origin_country)} restaurants feel most authentic to people from that home cuisine.</p>',
+        f'<p class="section-note">See which {origin_flag} {html.escape(origin_cuisine)} restaurants feel familiar to people with lived experience of this cuisine.</p>',
         unsafe_allow_html=True,
     )
 
     if average_rows:
-        st.subheader("Most Authentic Right Now")
+        st.subheader("Most familiar right now")
         ranked_restaurants = [
             restaurant
             for restaurant in sorted_country_restaurants
-            if average_by_restaurant.get(restaurant["name"])
+            if weighted_hometaste_score(restaurant_checks(restaurant["name"])) is not None
         ]
         ranked_entries = ranked_restaurant_entries(ranked_restaurants)
         render_ranking_cards(ranked_entries[:5])
@@ -1850,8 +2378,8 @@ def render_reviews_view():
         st.markdown(
             """
             <div class="empty-panel">
-                <div class="empty-panel-title">No ratings yet.</div>
-                <div class="empty-panel-copy">Use Explore or Rate to add the first authenticity score.</div>
+                <div class="empty-panel-title">No HomeTaste checks yet.</div>
+                <div class="empty-panel-copy">Use Explore or Add a Check to add the first lived-experience context.</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1860,28 +2388,30 @@ def render_reviews_view():
             st.caption("If your Google Sheet already has responses, make sure the response Sheet is shared or published so the app can read its CSV URL.")
 
 
-def render_feedback_view():
+def render_report_view():
     st.markdown('<div id="feedback-section"></div>', unsafe_allow_html=True)
-    st.subheader("Send Feedback")
+    st.subheader("Report issue")
     st.markdown(
-        '<p class="section-note">Found a duplicate, wrong cuisine, missing restaurant, or map issue? Send it to the team.</p>',
+        '<p class="section-note">Help keep HomeTaste accurate. Found a duplicate, wrong cuisine, missing restaurant, or map issue? Send it to the team.</p>',
         unsafe_allow_html=True,
     )
     with st.form("feedback_form"):
         feedback_topic = st.selectbox(
             "Issue type",
             [
-                "Duplicate restaurant",
-                "Wrong cuisine or country",
-                "Missing restaurant",
-                "Map location issue",
+                "wrong cuisine",
+                "duplicate restaurant",
+                "closed restaurant",
+                "wrong location",
+                "wrong image",
+                "offensive/inappropriate content",
                 "Other",
             ],
         )
         feedback_restaurant = st.text_input("Restaurant name optional")
-        feedback_message = st.text_area("What should we fix?")
+        feedback_message = st.text_area("Description")
         feedback_contact = st.text_input("Email optional")
-        feedback_submitted = st.form_submit_button("Send Feedback")
+        feedback_submitted = st.form_submit_button("Report issue")
 
         if feedback_submitted:
             if feedback_message.strip():
@@ -1897,19 +2427,19 @@ def render_feedback_view():
                 save_feedback(feedback_record)
                 sent_to_google = send_feedback_to_google_form(feedback_record)
                 if sent_to_google:
-                    st.success("Thanks. Your feedback has been sent to the team.")
+                    st.success("Thanks. Your report has been sent to the team.")
                 else:
-                    st.success("Thanks. Your feedback has been saved for the team.")
+                    st.success("Thanks. Your report has been saved for the team.")
                     st.caption("Google Form delivery is not configured yet, so this prototype kept a local backup.")
             else:
                 st.error("Please describe what should be fixed.")
 
 
-if st.session_state.active_view == "Rate":
-    render_rate_view()
-elif st.session_state.active_view == "Reviews":
-    render_reviews_view()
-elif st.session_state.active_view == "Feedback":
-    render_feedback_view()
+if st.session_state.active_view == "Check":
+    render_check_view()
+elif st.session_state.active_view == "Voices":
+    render_voices_view()
+elif st.session_state.active_view == "Report":
+    render_report_view()
 else:
     render_explore_view()

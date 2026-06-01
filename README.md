@@ -1,8 +1,31 @@
-# Food Atlas Boston
+# HomeTaste Boston
 
-Streamlit app for discovering Boston restaurants by home cuisine and collecting authenticity ratings.
+HomeTaste Boston is a Streamlit app for discovering Boston restaurants through lived-experience food knowledge.
 
-## Run locally
+Most restaurant apps show what is popular. HomeTaste adds a different layer: what feels familiar, comforting, and culturally true to people who grew up with, lived with, or deeply know a cuisine.
+
+This is not a generic restaurant review site, and it is not meant to gatekeep food. Anyone can explore. People with lived experience can add HomeTaste checks that give other diners more context.
+
+## Core Features
+
+- Choose a cuisine you know from lived experience.
+- Explore Boston restaurants on a map.
+- See HomeTaste Scores from lived-experience checks.
+- Add structured HomeTaste checks with relationship-to-cuisine context.
+- Browse voices and explanations from people who know the cuisine.
+- Report incorrect restaurant data, duplicates, location issues, or image issues.
+
+## Philosophy
+
+HomeTaste is not about saying who is allowed to enjoy a cuisine.
+
+It is about adding context.
+
+Anyone can use mainstream restaurant apps to see what is popular. HomeTaste helps you see what feels familiar to people who grew up with, lived with, or deeply know a cuisine, so you can explore Boston restaurants with more curiosity, respect, and better recommendations.
+
+We do not believe food has only one correct version. Diaspora food changes, adapts, and becomes local. HomeTaste is not here to police authenticity. It simply adds a missing layer to restaurant discovery: lived-experience perspective.
+
+## Run Locally
 
 ```bash
 pip install -r requirements.txt
@@ -15,54 +38,19 @@ Local URL:
 http://localhost:8501/
 ```
 
-## Deploy publicly
+## Deploy Publicly
 
 1. Create a GitHub repository.
-2. Upload `app.py`, `requirements.txt`, `.gitignore`, and this `README.md`.
+2. Upload `app.py`, `requirements.txt`, `.gitignore`, `.streamlit/config.toml`, and this `README.md`.
 3. Deploy the repository with Streamlit Community Cloud or another Streamlit host.
-4. Add Streamlit secrets for Google Form review storage.
-5. Set Streamlit secrets for feedback delivery if feedback should go directly to operators.
+4. Add Streamlit secrets for Google Form check storage.
+5. Add Streamlit secrets for issue reports if reports should go directly to operators.
 
-## Feedback storage
+## HomeTaste Check Storage
 
-Feedback is separate from ratings. The clean setup is:
+Public HomeTaste checks are submitted through a Google Form and read back from the linked Google Sheet's published CSV URL. This avoids service account keys, which many Google Cloud projects block by default.
 
-1. Create a second Google Form for operator feedback.
-2. Link that form to the same Google Sheet as the rating form.
-3. Google will create a separate response tab, so reviews and feedback stay separated.
-4. Add these values in **Streamlit Community Cloud → App settings → Secrets**.
-
-Create a feedback Google Form with these fields:
-
-```text
-timestamp
-Issue type
-Restaurant name optional
-What should we fix?
-Email optional
-```
-
-Then configure these values. The current feedback form is already mapped below. `FEEDBACK_FORM_COUNTRY_FIELD` is optional; only use it if the feedback form also has a country question.
-
-```toml
-FEEDBACK_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfBaDjHXkAsVflYjAsfQ0PqesjUyoB5xa_I1G5v_RKrgJV3rA/formResponse"
-FEEDBACK_FORM_TIMESTAMP_FIELD = "entry.1002726540"
-FEEDBACK_FORM_TOPIC_FIELD = "entry.1301236709"
-FEEDBACK_FORM_RESTAURANT_FIELD = "entry.744111579"
-FEEDBACK_FORM_MESSAGE_FIELD = "entry.1754693192"
-FEEDBACK_FORM_CONTACT_FIELD = "entry.734363110"
-# Optional:
-# FEEDBACK_FORM_COUNTRY_FIELD = "entry.xxxxx"
-```
-
-Older `GOOGLE_FORM_*` feedback secret names still work, but `FEEDBACK_FORM_*` is clearer.
-The app also keeps a local backup in `feedback.csv` when running locally.
-
-## Ratings storage
-
-Public reviews are submitted through a Google Form and read back from the linked Google Sheet's published CSV URL. This avoids service account keys, which many Google Cloud projects block by default.
-
-Create a Google Form with these fields:
+The current app remains compatible with the existing Google Form fields:
 
 ```text
 timestamp
@@ -72,24 +60,44 @@ rating
 note
 ```
 
-Link the form to a Google Sheet. In the response Sheet, rename the columns to:
+The app stores newer HomeTaste details inside the note field as structured text, so the current form can continue working without a database migration.
 
-```text
-timestamp,country,restaurant,rating,note
-```
-
-Then publish that response Sheet as CSV and add these values in **Streamlit Community Cloud → App settings → Secrets**. Make sure the `gid` belongs to the Google Form response tab, not an empty first sheet.
+Add these values in **Streamlit Community Cloud -> App settings -> Secrets**:
 
 ```toml
-REVIEW_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"
-REVIEW_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/.../formResponse"
-REVIEW_FORM_TIMESTAMP_FIELD = "entry.xxxxx"
-REVIEW_FORM_COUNTRY_FIELD = "entry.xxxxx"
-REVIEW_FORM_RESTAURANT_FIELD = "entry.xxxxx"
-REVIEW_FORM_RATING_FIELD = "entry.xxxxx"
-REVIEW_FORM_NOTE_FIELD = "entry.xxxxx"
+REVIEW_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1CwuBzDyTWOXvWgARrSqAxMH70xoxYaG-iWkYmOLRo5I/export?format=csv&gid=349385528"
+REVIEW_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/1FAIpQLSezjgoihhcW_OZLbt5ictQ8B9p7gepciIOdv0YMVPU1o2gxrg/formResponse"
+REVIEW_FORM_TIMESTAMP_FIELD = "entry.1083137322"
+REVIEW_FORM_COUNTRY_FIELD = "entry.284631955"
+REVIEW_FORM_RESTAURANT_FIELD = "entry.1872716998"
+REVIEW_FORM_RATING_FIELD = "entry.49189999"
+REVIEW_FORM_NOTE_FIELD = "entry.942014209"
 ```
 
-The app falls back to `reviews.csv` only for local testing.
+## Report Issue Storage
 
-If reviews do not appear in the Google Form response Sheet, open the app's Rate page and submit a test review. The app will show whether the Google Form submission succeeded or which secret is missing.
+Issue reports are separate from HomeTaste checks. The clean setup is:
+
+1. Create or use a second Google Form for operator reports.
+2. Link that form to a response sheet.
+3. Add these values in Streamlit Secrets.
+
+```toml
+FEEDBACK_FORM_ACTION_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfBaDjHXkAsVflYjAsfQ0PqesjUyoB5xa_I1G5v_RKrgJV3rA/formResponse"
+FEEDBACK_FORM_TIMESTAMP_FIELD = "entry.1002726540"
+FEEDBACK_FORM_TOPIC_FIELD = "entry.1301236709"
+FEEDBACK_FORM_RESTAURANT_FIELD = "entry.744111579"
+FEEDBACK_FORM_MESSAGE_FIELD = "entry.1754693192"
+FEEDBACK_FORM_CONTACT_FIELD = "entry.734363110"
+```
+
+The app also keeps a local backup in `feedback.csv` when running locally.
+
+## Future Work
+
+- Better duplicate handling and canonical restaurant IDs.
+- Real restaurant photo pipeline.
+- Cuisine region and subtype classification.
+- Dedicated weighted scoring fields in the Google Form or a database.
+- Moderation and quality checks for vague submissions.
+- Multi-city expansion beyond Boston.

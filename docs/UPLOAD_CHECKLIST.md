@@ -20,10 +20,10 @@ Use `.streamlit/secrets.toml.example` only as a copy-paste template for Streamli
 2. Open the app settings.
 3. Open Secrets.
 4. Paste the template contents.
-5. Replace the feedback placeholders after creating the feedback Google Form.
+5. Replace the report placeholders after creating the report issue Google Form.
 6. Save changes and reboot the app.
 
 Public app data flow:
 
-- Ratings go to the rating Google Form and are read back from the linked Google Sheet CSV.
-- Feedback goes to the feedback Google Form and appears in a separate tab of the same Google Sheet.
+- HomeTaste checks go to the check Google Form and are read back from the linked Google Sheet CSV.
+- Issue reports go to the report Google Form and appear in a separate tab of the same Google Sheet.
