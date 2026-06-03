@@ -257,6 +257,8 @@ elif "active_view" not in st.session_state:
 initial_menu = st.query_params.get("menu")
 if isinstance(initial_menu, list):
     initial_menu = initial_menu[0] if initial_menu else None
+if "menu_open" not in st.session_state:
+    st.session_state.menu_open = initial_menu == "open"
 
 
 def switch_view(view_name):
@@ -1070,42 +1072,45 @@ st.markdown(
 )
 
 active_view = st.session_state.active_view
-menu_state = "open" if initial_menu == "open" else "closed"
-top_nav_html = "".join(
-    (
-        f'<a class="{"active" if active_view == view_name else ""}" '
-        f'href="?view={view_name}">{VIEW_LABELS[view_name]}</a>'
-    )
-    for view_name in TOP_NAV_OPTIONS
-)
-st.markdown(
-    f"""
-    <header class="site-header">
+header_columns = st.columns([0.06, 0.44, 0.12, 0.14, 0.11, 0.13], gap="small")
+with header_columns[0]:
+    if st.button("🌐", key="menu-toggle", help="Open or close menu", type="tertiary"):
+        st.session_state.menu_open = not st.session_state.menu_open
+        st.rerun()
+
+with header_columns[1]:
+    st.markdown(
+        f"""
         <div class="brand-row">
-            <a class="brand-mark" href="?view={active_view}&menu=open" title="Open menu">◎</a>
             <div class="brand-title">{APP_NAME}</div>
         </div>
-        <nav class="top-nav-links">{top_nav_html}</nav>
-    </header>
-    """,
-    unsafe_allow_html=True,
-)
+        """,
+        unsafe_allow_html=True,
+    )
 
-if menu_state == "open":
+for nav_column, view_name in zip(header_columns[2:], TOP_NAV_OPTIONS):
+    with nav_column:
+        label = VIEW_LABELS[view_name]
+        if active_view == view_name:
+            label = f"• {label}"
+        if st.button(label, key=f"top-nav-{view_name}", type="tertiary", use_container_width=True):
+            switch_view(view_name)
+            st.rerun()
+
+if st.session_state.menu_open:
     with st.sidebar:
         st.markdown(f"## {APP_NAME}")
         st.markdown("Jump to a section.")
         for view_name in VIEW_OPTIONS:
-            class_name = "side-nav-link active" if active_view == view_name else "side-nav-link"
             label = VIEW_LABELS[view_name]
-            st.markdown(
-                f'<a class="{class_name}" href="?view={view_name}&menu=open">{label}</a>',
-                unsafe_allow_html=True,
-            )
-        st.markdown(
-            f'<a class="side-nav-link subtle" href="?view={active_view}">Close menu</a>',
-            unsafe_allow_html=True,
-        )
+            if active_view == view_name:
+                label = f"• {label}"
+            if st.button(label, key=f"side-nav-{view_name}", type="tertiary", use_container_width=True):
+                switch_view(view_name)
+                st.rerun()
+        if st.button("Close menu", key="side-close-menu", type="tertiary", use_container_width=True):
+            st.session_state.menu_open = False
+            st.rerun()
 
 st.markdown(
     """
@@ -1879,11 +1884,13 @@ st.markdown(
     """
     <div class="feedback-cta">
         <div><strong>Help keep HomeTaste accurate.</strong> Missing restaurant, duplicate listing, or wrong cuisine?</div>
-        <a href="?view=Report">Report issue</a>
     </div>
     """,
     unsafe_allow_html=True,
 )
+if st.button("Report issue", key="feedback-cta-report", type="tertiary"):
+    switch_view("Report")
+    st.rerun()
 
 selected_from_map = st.session_state.get("map_selected_restaurant") or get_query_param("selected")
 selected_from_map_restaurant = next(

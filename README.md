@@ -46,6 +46,12 @@ http://localhost:8501/
 4. Add Streamlit secrets for Google Form check storage.
 5. Add Streamlit secrets for issue reports if reports should go directly to operators.
 
+## Public Hosting And Sleep Screens
+
+Streamlit Community Cloud can put inactive apps to sleep. When that happens, visitors may see a wake-up or "ZZZ" screen before the app loads again. That behavior is controlled by the hosting service, not by `app.py`, so it cannot be reliably removed from inside the app code.
+
+For a consumer-facing public launch, use an always-on hosting option such as a paid Streamlit plan or another always-on host. Avoid relying on keep-alive pings as a production fix because they are fragile and may conflict with a host's usage policy.
+
 ## HomeTaste Check Storage
 
 Public HomeTaste checks are submitted through a Google Form and read back from the linked Google Sheet's published CSV URL. This avoids service account keys, which many Google Cloud projects block by default.
