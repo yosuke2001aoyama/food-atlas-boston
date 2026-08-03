@@ -1,6 +1,6 @@
 # HomeTaste Boston
 
-HomeTaste Boston is a Streamlit app for discovering Boston restaurants through lived-experience food knowledge.
+HomeTaste Boston is a Vercel-hosted restaurant discovery product backed by the original Streamlit data model and lived-experience food knowledge.
 
 Most restaurant apps show what is popular. HomeTaste adds a different layer: what feels familiar, comforting, and culturally true to people who grew up with, lived with, or deeply know a cuisine.
 
@@ -25,7 +25,35 @@ Anyone can use mainstream restaurant apps to see what is popular. HomeTaste help
 
 We do not believe food has only one correct version. Diaspora food changes, adapts, and becomes local. HomeTaste is not here to police authenticity. It simply adds a missing layer to restaurant discovery: lived-experience perspective.
 
-## Run Locally
+## Vercel Product
+
+The public frontend preserves the complete restaurant source rather than falling back to a small client-side sample:
+
+- 2,030 canonical restaurant records from the original OpenStreetMap query plus HomeTaste curation.
+- All 52 original cuisine categories.
+- All 11 existing published HomeTaste checks, refreshed through `/api/checks` with a bundled snapshot fallback.
+- A clustered Leaflet map, complete-dataset search, area and cuisine filters, and paginated rendering without deleting records.
+- Cuisine-aware imagery; Japanese surfaces use a ramen image rather than American-style rolls.
+
+The data snapshot is produced from `app.py`, which remains the source of truth for cuisine rules and curated restaurant records:
+
+```bash
+python3 scripts/build_snapshot.py
+```
+
+Run the static product locally:
+
+```bash
+python3 -m http.server 4173
+```
+
+Run data-integrity tests:
+
+```bash
+npm test
+```
+
+## Run The Legacy Streamlit App Locally
 
 ```bash
 pip install -r requirements.txt
