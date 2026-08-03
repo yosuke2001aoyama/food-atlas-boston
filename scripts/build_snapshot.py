@@ -9,6 +9,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,8 +67,22 @@ def area_for(latitude: float, longitude: float) -> str:
     ))
 
 
-def restaurant_record(name: str, country: str, cuisine: str, latitude: float, longitude: float, *, source: str) -> dict[str, object]:
-    return {
+def image_url_for(tags: dict[str, str]) -> str:
+    raw = str(tags.get("image", "")).strip()
+    if not raw.startswith("https://"):
+        return ""
+    decoded = unquote(raw).lower()
+    if "logo" in decoded or decoded.endswith(".svg"):
+        return ""
+    commons_marker = "commons.wikimedia.org/wiki/file:"
+    if commons_marker in decoded:
+        filename = raw.split("File:", 1)[-1]
+        return f"https://commons.wikimedia.org/wiki/Special:FilePath/{quote(filename)}?width=1400"
+    return raw
+
+
+def restaurant_record(name: str, country: str, cuisine: str, latitude: float, longitude: float, *, source: str, image_url: str = "") -> dict[str, object]:
+    record: dict[str, object] = {
         "name": name.strip(),
         "country": country,
         "cuisine": cuisine,
@@ -76,6 +91,9 @@ def restaurant_record(name: str, country: str, cuisine: str, latitude: float, lo
         "area": area_for(float(latitude), float(longitude)),
         "source": source,
     }
+    if image_url:
+        record["image_url"] = image_url
+    return record
 
 
 def build_restaurants(constants: dict[str, object]) -> list[dict[str, object]]:
@@ -114,6 +132,7 @@ def build_restaurants(constants: dict[str, object]) -> list[dict[str, object]]:
         if canonical_key in restaurants:
             continue
         curated_match = curated_by_key.get(canonical_key)
+        image_url = image_url_for(tags)
         if curated_match:
             restaurants[canonical_key] = restaurant_record(
                 str(curated_match["name"]),
@@ -122,6 +141,7 @@ def build_restaurants(constants: dict[str, object]) -> list[dict[str, object]]:
                 float(curated_match["latitude"]),
                 float(curated_match["longitude"]),
                 source="curated + OpenStreetMap",
+                image_url=image_url,
             )
         else:
             restaurants[canonical_key] = restaurant_record(
@@ -131,6 +151,7 @@ def build_restaurants(constants: dict[str, object]) -> list[dict[str, object]]:
                 latitude,
                 longitude,
                 source="OpenStreetMap",
+                image_url=image_url,
             )
 
     for item in curated:

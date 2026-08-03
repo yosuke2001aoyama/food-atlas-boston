@@ -14,6 +14,8 @@ const [restaurantsData, checksData, cuisines, html, app] = await Promise.all([
 const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const restaurantNames = new Set(restaurantsData.restaurants.map(restaurant => normalize(restaurant.name)));
 const japaneseRestaurants = restaurantsData.restaurants.filter(restaurant => restaurant.country === "Japan");
+const officialImageRestaurants = restaurantsData.restaurants.filter(restaurant => /^https:\/\//.test(restaurant.image_url || ""));
+const imageIds = new Set([...app.matchAll(/foodPhoto\("(photo-[^"]+)"/g)].map(match => match[1]));
 const requiredOriginalRestaurants = [
   "Izakaya Ittoku", "Yume Wo Katare", "Tsurumen Davis", "Yume Ga Arukara", "Cafe Mami",
   "Sugidama Soba & Izakaya", "Nagomi Izakaya", "Sakura Japanese", "Genki Ya", "Sapporo Ramen",
@@ -26,6 +28,7 @@ assert.equal(restaurantsData.count, restaurantsData.restaurants.length, "Restaur
 assert.ok(japaneseRestaurants.length >= 96, "Japanese coverage must not regress below the original app's 96-place baseline");
 assert.equal(checksData.count, 11, "All 11 published HomeTaste checks must be preserved");
 assert.equal(restaurantNames.size, restaurantsData.restaurants.length, "Canonical restaurant names must be unique");
+assert.ok(officialImageRestaurants.length >= 2, "Direct OSM image metadata must be preserved when usable");
 
 for (const name of requiredOriginalRestaurants) {
   assert.ok(restaurantNames.has(normalize(name)), `Missing original restaurant: ${name}`);
@@ -38,8 +41,13 @@ assert.match(html, /All 52 cuisines/, "The default filter must visibly include e
 assert.match(html, /Complete dataset/, "The data integrity state must be visible");
 assert.match(html, /leaflet\.markercluster/, "The map must cluster the complete result set");
 assert.match(app, /selectedCuisine:\s*"all"/, "The product must not default to Japanese only");
-assert.match(app, /photo-1569718212165-3a8278d5f624/, "Japanese imagery must use the approved ramen photograph");
-assert.match(app, /"Japan": "A bowl of Japanese ramen"/, "Japanese image semantics must identify ramen");
+assert.ok(imageIds.size >= 35, "Restaurant covers must draw from a diverse image library");
+for (const category of ["japanSushi", "japanRamen", "japanNoodles", "japanCurry", "japanIzakaya", "japanGrill", "japanRice", "japanCafe", "japanClassic"]) {
+  assert.match(app, new RegExp(`${category}: \\[`, "m"), `Missing Japanese cover category: ${category}`);
+}
+assert.match(app, /imageCategoryFor\(restaurant\)/, "Covers must be selected from restaurant-level cuisine data");
+assert.match(app, /restaurant\.image_url/, "Direct restaurant image metadata must take priority when present");
+assert.doesNotMatch(app, /imageFor\(restaurant\.country\)/, "Country-wide cover reuse must not return");
 
 console.log(JSON.stringify({
   status: "passed",
@@ -47,4 +55,6 @@ console.log(JSON.stringify({
   japaneseRestaurants: japaneseRestaurants.length,
   cuisines: cuisines.length,
   checks: checksData.count,
+  officialImageRestaurants: officialImageRestaurants.length,
+  coverImages: imageIds.size,
 }));
