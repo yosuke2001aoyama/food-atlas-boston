@@ -155,6 +155,8 @@ const slugify = value => String(value || "").normalize("NFKD").toLowerCase().rep
 const cuisineFor = country => state.cuisines.find(item => item.country === country) || { country, label: country, flag: "" };
 const cuisineUrlFor = country => `/cuisines/${slugify(cuisineFor(country).label)}`;
 const subtypeFor = restaurant => String(restaurant.cuisine || cuisineFor(restaurant.country).label).split(/[,;/]/).map(value => value.trim().replaceAll("_", " ")).filter(Boolean).slice(0, 3).join(" · ");
+const exteriorPhotoCache = new Map();
+let exteriorObserver = null;
 
 function stableHash(value) {
   let hash = 2166136261;
@@ -226,6 +228,72 @@ function imageChoiceFor(restaurant) {
 function featuredImageFor(country) {
   const category = FEATURED_IMAGE_CATEGORY[country] || "default";
   return categoryImageFor({ name: `${country} cuisine`, country, cuisine: "" }, category);
+}
+
+function restaurantForExteriorElement(element) {
+  return state.restaurants.find(item => normalizeName(item.name) === normalizeName(element.dataset.exteriorName));
+}
+
+async function exteriorPhotoFor(restaurant) {
+  if (!restaurant || !Number.isFinite(restaurant.latitude) || !Number.isFinite(restaurant.longitude)) return null;
+  const key = `${restaurant.latitude.toFixed(6)},${restaurant.longitude.toFixed(6)}`;
+  if (!exteriorPhotoCache.has(key)) {
+    const request = fetch(`/api/exterior-photo?lat=${encodeURIComponent(restaurant.latitude)}&lng=${encodeURIComponent(restaurant.longitude)}`)
+      .then(response => response.ok ? response.json() : { photo: null })
+      .then(payload => payload.photo || null)
+      .catch(() => null);
+    exteriorPhotoCache.set(key, request);
+  }
+  return exteriorPhotoCache.get(key);
+}
+
+function applyExteriorPhoto(element, restaurant, photo) {
+  if (!photo?.imageUrl || !isSafeImageUrl(photo.imageUrl)) return;
+  const container = element.closest(".restaurant-image, .detail-hero, .voice-card");
+  const credit = container?.querySelector("[data-photo-credit]");
+  if (element.tagName === "IMG") {
+    element.dataset.fallback = element.currentSrc || element.src || element.dataset.fallback;
+    element.alt = `Street-level exterior near ${restaurant.name}`;
+    element.addEventListener("error", () => { if (credit) credit.hidden = true; }, { once: true });
+    element.src = photo.imageUrl;
+  } else {
+    element.style.setProperty("--image", `url("${photo.imageUrl.replace(/["\\]/g, "")}")`);
+  }
+  if (credit) {
+    credit.href = photo.sourceUrl;
+    credit.textContent = `${photo.provider} · ${photo.license}`;
+    credit.title = `${photo.contributor}${photo.capturedAt ? ` · Captured ${photo.capturedAt}` : ""}`;
+    credit.hidden = false;
+  }
+  container?.classList.add("has-exterior-photo");
+}
+
+async function loadExteriorPhoto(element) {
+  if (element.dataset.exteriorLoaded === "true") return;
+  element.dataset.exteriorLoaded = "true";
+  const restaurant = restaurantForExteriorElement(element);
+  const photo = await exteriorPhotoFor(restaurant);
+  if (photo) applyExteriorPhoto(element, restaurant, photo);
+}
+
+function hydrateExteriorPhotos(root = document) {
+  const elements = [...root.querySelectorAll("[data-exterior-name]")].filter(element => element.dataset.exteriorObserved !== "true");
+  if (!elements.length) return;
+  if (!("IntersectionObserver" in window)) {
+    elements.forEach(element => loadExteriorPhoto(element));
+    return;
+  }
+  if (!exteriorObserver) {
+    exteriorObserver = new IntersectionObserver(entries => entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      exteriorObserver.unobserve(entry.target);
+      loadExteriorPhoto(entry.target);
+    }), { rootMargin: "240px 0px" });
+  }
+  elements.forEach(element => {
+    element.dataset.exteriorObserved = "true";
+    exteriorObserver.observe(element);
+  });
 }
 
 function localChecks() {
@@ -305,8 +373,9 @@ function restaurantCard(restaurant) {
   const image = imageChoiceFor(restaurant);
   return `<article class="restaurant-card" data-restaurant="${escapeHtml(restaurant.name)}">
     <div class="restaurant-image" role="button" tabindex="0" data-action="detail" aria-label="View ${escapeHtml(restaurant.name)} details">
-      <img src="${escapeHtml(image.url)}" data-fallback="${escapeHtml(image.fallbackUrl)}" alt="${escapeHtml(image.alt)}" loading="lazy" onerror="if(this.src!==this.dataset.fallback){this.src=this.dataset.fallback}else{this.style.display='none'}" />
+      <img src="${escapeHtml(image.url)}" data-fallback="${escapeHtml(image.fallbackUrl)}" data-exterior-name="${escapeHtml(restaurant.name)}" alt="${escapeHtml(image.alt)}" loading="lazy" onerror="if(this.src!==this.dataset.fallback){this.src=this.dataset.fallback}else{this.style.display='none'}" />
       <span class="cuisine-pill">${escapeHtml(cuisine.flag)} ${escapeHtml(cuisine.label)}</span>
+      <a class="photo-credit" data-photo-credit href="https://kartaview.org/" target="_blank" rel="noreferrer" hidden>KartaView · CC BY-SA 4.0</a>
     </div>
     <div class="restaurant-body">
       <h4>${escapeHtml(restaurant.name)}</h4>
@@ -324,6 +393,7 @@ function renderResults({ fitMap = false } = {}) {
   byId("resultsCount").textContent = `${list.length.toLocaleString()} place${list.length === 1 ? "" : "s"} in the current view`;
   const visible = list.slice(0, state.visibleCount);
   byId("restaurantGrid").innerHTML = visible.length ? visible.map(restaurantCard).join("") : `<div class="empty-state"><h4>No matching restaurants</h4><p>Try a broader cuisine, area, or search term. Nothing has been removed from the complete dataset.</p></div>`;
+  hydrateExteriorPhotos(byId("restaurantGrid"));
   byId("loadMore").hidden = visible.length >= list.length;
   if (!byId("loadMore").hidden) byId("loadMore").textContent = `Show more restaurants (${(list.length - visible.length).toLocaleString()} remaining)`;
   renderCuisineRail();
@@ -372,10 +442,12 @@ function renderVoices() {
     const { restaurant, summary } = entry;
     const note = summary.checks.find(check => check.note)?.note || "A lived-experience check has been recorded; a written detail has not been added yet.";
     const image = imageChoiceFor(restaurant);
-    return `<article class="voice-card" style="--image:url('${escapeHtml(image.url)}')">
+    return `<article class="voice-card" data-exterior-name="${escapeHtml(restaurant.name)}" style="--image:url('${escapeHtml(image.url)}')">
+      <a class="photo-credit" data-photo-credit href="https://kartaview.org/" target="_blank" rel="noreferrer" hidden>KartaView · CC BY-SA 4.0</a>
       <div class="voice-content"><div class="voice-rank">#${index + 1} · ${escapeHtml(cuisineFor(restaurant.country).label)}</div><h3>${escapeHtml(restaurant.name)}</h3><div class="voice-score">${summary.score ?? "New"} HomeTaste · ${summary.count} check${summary.count === 1 ? "" : "s"}</div><p class="voice-note">“${escapeHtml(note)}”</p><button type="button" data-voice-name="${escapeHtml(restaurant.name)}">See all voices</button></div>
     </article>`;
   }).join("") || `<div class="empty-state"><h4>No voices yet</h4><p>Be the first to share a lived-experience check.</p></div>`;
+  hydrateExteriorPhotos(byId("voicesGrid"));
 }
 
 function openRestaurant(name) {
@@ -388,7 +460,8 @@ function openRestaurant(name) {
   const summary = scoreFor(name);
   const image = imageChoiceFor(item);
   const voiceMarkup = checks.length ? checks.map(check => `<div class="detail-voice"><p>${check.note ? `“${escapeHtml(check.note)}”` : "This check did not include a written note."}</p><span>${escapeHtml(check.relationship)} · ${escapeHtml(check.rating)} / 5</span></div>`).join("") : `<div class="detail-voice"><p>No HomeTaste voice yet. Be the first person with lived experience to add context.</p></div>`;
-  byId("restaurantDetail").innerHTML = `<div class="detail-hero" role="img" aria-label="${escapeHtml(image.alt)}" style="--image:url('${escapeHtml(image.url)}')"></div><div class="detail-body"><p class="eyebrow">${escapeHtml(cuisine.flag)} ${escapeHtml(cuisine.label)}</p><h2>${escapeHtml(item.name)}</h2><div class="detail-meta">${escapeHtml(item.area)} · ${escapeHtml(subtypeFor(item))}</div><div class="detail-score"><strong>${summary.score === null ? "New" : `${summary.score}/100`}</strong><div><b>${summary.score === null ? "Awaiting a HomeTaste check" : "HomeTaste Score"}</b><p>${summary.count} lived-experience check${summary.count === 1 ? "" : "s"}. This is cultural context, not general popularity.</p></div></div><h3>Voices</h3><div class="detail-voices">${voiceMarkup}</div><div class="detail-actions"><button class="button primary" type="button" data-detail-check="${escapeHtml(item.name)}">Add a HomeTaste Check</button><button class="button quiet" type="button" data-detail-report="${escapeHtml(item.name)}">Report issue</button></div></div>`;
+  byId("restaurantDetail").innerHTML = `<div class="detail-hero"><img src="${escapeHtml(image.url)}" data-fallback="${escapeHtml(image.fallbackUrl)}" data-exterior-name="${escapeHtml(item.name)}" alt="${escapeHtml(image.alt)}" onerror="if(this.src!==this.dataset.fallback){this.src=this.dataset.fallback}else{this.style.display='none'}" /><a class="photo-credit" data-photo-credit href="https://kartaview.org/" target="_blank" rel="noreferrer" hidden>KartaView · CC BY-SA 4.0</a></div><div class="detail-body"><p class="eyebrow">${escapeHtml(cuisine.flag)} ${escapeHtml(cuisine.label)}</p><h2>${escapeHtml(item.name)}</h2><div class="detail-meta">${escapeHtml(item.area)} · ${escapeHtml(subtypeFor(item))}</div><div class="detail-score"><strong>${summary.score === null ? "New" : `${summary.score}/100`}</strong><div><b>${summary.score === null ? "Awaiting a HomeTaste check" : "HomeTaste Score"}</b><p>${summary.count} lived-experience check${summary.count === 1 ? "" : "s"}. This is cultural context, not general popularity.</p></div></div><h3>Voices</h3><div class="detail-voices">${voiceMarkup}</div><div class="detail-actions"><button class="button primary" type="button" data-detail-check="${escapeHtml(item.name)}">Add a HomeTaste Check</button><button class="button quiet" type="button" data-detail-report="${escapeHtml(item.name)}">Report issue</button></div></div>`;
+  hydrateExteriorPhotos(byId("restaurantDetail"));
   byId("restaurantDialog").showModal();
 }
 window.openRestaurant = openRestaurant;
@@ -515,6 +588,7 @@ function bindInteractions() {
   });
   byId("loadMore").addEventListener("click", () => { state.visibleCount += 24; renderResults(); });
   byId("restaurantGrid").addEventListener("click", event => {
+    if (event.target.closest("[data-photo-credit]")) return;
     const card = event.target.closest("[data-restaurant]");
     if (!card) return;
     if (event.target.closest('[data-action="check"]')) openCheck(card.dataset.restaurant);

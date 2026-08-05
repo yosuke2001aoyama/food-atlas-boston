@@ -103,6 +103,8 @@ h1 { max-width: 690px; margin: 0; font: 700 clamp(46px, 5.5vw, 76px)/1.01 var(--
 .restaurant-image img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .35s; }
 .restaurant-card:hover .restaurant-image img { transform: scale(1.035); }
 .cuisine-pill { position: absolute; left: 11px; top: 11px; padding: 6px 9px; color: white; background: rgba(25,24,23,.78); border-radius: 999px; backdrop-filter: blur(8px); font-size: 11px; font-weight: 700; }
+.photo-credit { position: absolute; z-index: 3; right: 9px; bottom: 8px; padding: 5px 7px; border: 1px solid rgba(255,255,255,.26); border-radius: 5px; color: white; background: rgba(25,24,23,.8); backdrop-filter: blur(7px); font-size: 9px; line-height: 1; text-decoration: none; }
+.photo-credit[hidden] { display: none; }
 .restaurant-body { padding: 15px; }
 .restaurant-body h4 { margin: 0 0 5px; font: 700 19px/1.2 var(--serif); }
 .restaurant-meta { margin: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -173,7 +175,8 @@ dialog::backdrop { background: rgba(25,24,23,.6); backdrop-filter: blur(4px); }
 .form-message { min-height: 18px; margin: 0; color: var(--wine); font-size: 12px; }
 .form-message.success { color: var(--sage); }
 .detail-dialog { width: min(760px,calc(100vw - 30px)); padding: 0; }
-.detail-hero { height: 260px; background: #d8d0c8 var(--image) center/cover no-repeat; }
+.detail-hero { position: relative; height: 260px; overflow: hidden; background: #d8d0c8; }
+.detail-hero img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .detail-body { padding: 30px; }
 .detail-body h2 { margin: 0 0 7px; padding-right: 32px; font: 700 38px/1.1 var(--serif); }
 .detail-meta { color: var(--muted); }
