@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 
 const root = new URL("../", import.meta.url);
 const readJson = async path => JSON.parse(await readFile(new URL(path, root), "utf8"));
-const [restaurantsData, checksData, cuisines, html, app] = await Promise.all([
+const [restaurantsData, checksData, cuisines, html, app, robots, sitemap, cuisineIndex] = await Promise.all([
   readJson("data/restaurants.json"),
   readJson("data/checks.json"),
   readJson("data/cuisines.json"),
   readFile(new URL("index.html", root), "utf8"),
   readFile(new URL("app.js", root), "utf8"),
+  readFile(new URL("robots.txt", root), "utf8"),
+  readFile(new URL("sitemap.xml", root), "utf8"),
+  readFile(new URL("cuisines/index.html", root), "utf8"),
 ]);
 
 const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -16,6 +19,9 @@ const restaurantNames = new Set(restaurantsData.restaurants.map(restaurant => no
 const japaneseRestaurants = restaurantsData.restaurants.filter(restaurant => restaurant.country === "Japan");
 const officialImageRestaurants = restaurantsData.restaurants.filter(restaurant => /^https:\/\//.test(restaurant.image_url || ""));
 const imageIds = new Set([...app.matchAll(/foodPhoto\("(photo-[^"]+)"/g)].map(match => match[1]));
+const representedCuisines = cuisines.filter(cuisine => restaurantsData.restaurants.some(restaurant => restaurant.country === cuisine.country));
+const cuisineDirectories = (await readdir(new URL("cuisines/", root), { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
+const cuisinePages = await Promise.all(cuisineDirectories.map(directory => readFile(new URL(`cuisines/${directory}/index.html`, root), "utf8")));
 const requiredOriginalRestaurants = [
   "Izakaya Ittoku", "Yume Wo Katare", "Tsurumen Davis", "Yume Ga Arukara", "Cafe Mami",
   "Sugidama Soba & Izakaya", "Nagomi Izakaya", "Sakura Japanese", "Genki Ya", "Sapporo Ramen",
@@ -49,6 +55,37 @@ assert.match(app, /imageCategoryFor\(restaurant\)/, "Covers must be selected fro
 assert.match(app, /restaurant\.image_url/, "Direct restaurant image metadata must take priority when present");
 assert.doesNotMatch(app, /imageFor\(restaurant\.country\)/, "Country-wide cover reuse must not return");
 
+assert.match(html, /<link rel="canonical" href="https:\/\/hometaste-boston\.vercel\.app\/"/, "Homepage must declare its production canonical URL");
+assert.match(html, /<meta name="robots" content="index,follow/, "Homepage must explicitly allow indexing");
+assert.match(html, /"@type": "WebSite"/, "Homepage must provide WebSite structured data");
+assert.match(html, /property="og:title"/, "Homepage must provide social/search sharing metadata");
+assert.match(html, /href="\/cuisines"/, "Homepage must link to the crawlable cuisine directory");
+assert.match(app, /<a class="cuisine-card/, "Featured cuisines must render as crawlable anchor links");
+assert.match(app, /new URLSearchParams\(window\.location\.search\)\.get\("cuisine"\)/, "Cuisine map links must restore their selected filter");
+
+assert.match(robots, /^User-agent: \*$/m, "robots.txt must address all crawlers");
+assert.match(robots, /^Allow: \/$/m, "robots.txt must allow the site");
+assert.match(robots, /Sitemap: https:\/\/hometaste-boston\.vercel\.app\/sitemap\.xml/, "robots.txt must advertise the production sitemap");
+const sitemapLocations = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(match => match[1]);
+assert.equal(sitemapLocations.length, representedCuisines.length + 2, "Sitemap must include home, cuisine index, and every represented cuisine");
+assert.equal(new Set(sitemapLocations).size, sitemapLocations.length, "Sitemap URLs must be unique");
+assert.ok(sitemapLocations.every(url => url.startsWith("https://hometaste-boston.vercel.app/")), "Sitemap must use absolute production URLs");
+
+assert.equal(cuisineDirectories.length, representedCuisines.length, "Every represented cuisine must have one static landing page");
+assert.match(cuisineIndex, /Boston restaurants,<br \/>organized by cuisine/, "Cuisine index must contain useful visible browse content");
+const pageTitles = cuisinePages.map(page => page.match(/<title>([^<]+)<\/title>/)?.[1]);
+const pageDescriptions = cuisinePages.map(page => page.match(/<meta name="description" content="([^"]+)"/u)?.[1]);
+const pageCanonicals = cuisinePages.map(page => page.match(/<link rel="canonical" href="([^"]+)"/u)?.[1]);
+assert.equal(new Set(pageTitles).size, cuisinePages.length, "Cuisine page titles must be unique");
+assert.equal(new Set(pageDescriptions).size, cuisinePages.length, "Cuisine page descriptions must be unique");
+assert.equal(new Set(pageCanonicals).size, cuisinePages.length, "Cuisine page canonical URLs must be unique");
+for (const page of cuisinePages) {
+  assert.match(page, /"@type":"CollectionPage"/, "Cuisine page must expose CollectionPage structured data");
+  assert.match(page, /"@type":"BreadcrumbList"/, "Cuisine page must expose breadcrumb structured data");
+  assert.match(page, /"@type":"ItemList"/, "Cuisine page must expose its restaurant list as structured data");
+  assert.match(page, /href="\/\?cuisine=[^"]+#explore"/, "Cuisine page must link back to the filtered live map");
+}
+
 console.log(JSON.stringify({
   status: "passed",
   restaurants: restaurantsData.count,
@@ -57,4 +94,6 @@ console.log(JSON.stringify({
   checks: checksData.count,
   officialImageRestaurants: officialImageRestaurants.length,
   coverImages: imageIds.size,
+  seoCuisinePages: cuisinePages.length,
+  sitemapUrls: sitemapLocations.length,
 }));

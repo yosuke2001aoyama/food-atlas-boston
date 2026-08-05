@@ -151,7 +151,9 @@ const state = {
 const byId = id => document.getElementById(id);
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character]));
 const normalizeName = value => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const slugify = value => String(value || "").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const cuisineFor = country => state.cuisines.find(item => item.country === country) || { country, label: country, flag: "" };
+const cuisineUrlFor = country => `/cuisines/${slugify(cuisineFor(country).label)}`;
 const subtypeFor = restaurant => String(restaurant.cuisine || cuisineFor(restaurant.country).label).split(/[,;/]/).map(value => value.trim().replaceAll("_", " ")).filter(Boolean).slice(0, 3).join(" · ");
 
 function stableHash(value) {
@@ -286,9 +288,9 @@ function renderCuisineRail() {
   byId("cuisineRail").innerHTML = FEATURED_COUNTRIES.map(country => {
     const cuisine = cuisineFor(country);
     const image = featuredImageFor(country);
-    return `<button class="cuisine-card${state.selectedCuisine === country ? " active" : ""}" type="button" data-country="${escapeHtml(country)}" style="--image:url('${escapeHtml(image.url)}')" aria-label="Explore ${escapeHtml(cuisine.label)} restaurants">
+    return `<a class="cuisine-card${state.selectedCuisine === country ? " active" : ""}" href="${escapeHtml(cuisineUrlFor(country))}" data-country="${escapeHtml(country)}" style="--image:url('${escapeHtml(image.url)}')" aria-label="Explore ${escapeHtml(cuisine.label)} restaurants">
       <strong>${escapeHtml(cuisine.flag)} ${escapeHtml(cuisine.label)}</strong><span>${counts[country].toLocaleString()} places</span>
-    </button>`;
+    </a>`;
   }).join("");
 }
 
@@ -435,6 +437,10 @@ function selectCuisine(country) {
   byId("siteSearch").value = "";
   state.query = "";
   state.visibleCount = 24;
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.set("cuisine", country);
+  nextUrl.hash = "explore";
+  window.history.replaceState({}, "", nextUrl);
   renderResults({ fitMap: true });
   byId("explore").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -477,8 +483,11 @@ function bindInteractions() {
     byId("mobileMenu").setAttribute("aria-expanded", String(open));
   });
   byId("cuisineRail").addEventListener("click", event => {
-    const button = event.target.closest("[data-country]");
-    if (button) selectCuisine(button.dataset.country);
+    const link = event.target.closest("[data-country]");
+    if (link) {
+      event.preventDefault();
+      selectCuisine(link.dataset.country);
+    }
   });
   ["cuisineFilter", "areaFilter", "sortFilter"].forEach(id => byId(id).addEventListener("change", () => applyFilters()));
   let searchTimer;
@@ -497,6 +506,7 @@ function bindInteractions() {
     byId("sortFilter").value = "hometaste";
     byId("restaurantSearch").value = "";
     byId("siteSearch").value = "";
+    window.history.replaceState({}, "", `${window.location.pathname}#explore`);
     applyFilters();
   });
   byId("showAllCuisines").addEventListener("click", () => {
@@ -583,7 +593,11 @@ async function bootstrap() {
     state.restaurants = restaurantData.restaurants;
     state.cuisines = cuisines;
     state.checks = dedupeChecks([...(checkData.checks || []), ...localChecks()]);
+    const requestedCuisine = new URLSearchParams(window.location.search).get("cuisine");
+    const matchedCuisine = state.cuisines.find(item => item.country === requestedCuisine || item.label === requestedCuisine);
+    if (matchedCuisine) state.selectedCuisine = matchedCuisine.country;
     populateCuisineSelects();
+    byId("cuisineFilter").value = state.selectedCuisine;
     populateCheckRestaurants("");
     byId("dataStatus").textContent = `${state.restaurants.length.toLocaleString()} restaurants · ${state.cuisines.length} cuisines · ${state.checks.length} HomeTaste checks. No source listings are hidden.`;
     renderResults({ fitMap: true });
